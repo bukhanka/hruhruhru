@@ -1,4 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 import * as fs from "fs";
 import * as path from "path";
 import dotenv from "dotenv";
@@ -18,53 +18,35 @@ const professions = [
   { name: "Бариста", level: "Junior", company: "кофейня" }, // не-IT
 ];
 
+// Retry функция для надежности
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  maxRetries: number = 3,
+  delayMs: number = 1000
+): Promise<T> {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error: any) {
+      const isLastAttempt = attempt === maxRetries;
+      
+      if (isLastAttempt) {
+        throw error;
+      }
+      
+      console.log(`    ⚠️  Попытка ${attempt} не удалась: ${error.message}`);
+      console.log(`    🔄 Повторяю через ${delayMs}ms...`);
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
+  }
+  throw new Error('Unreachable');
+}
+
 async function generateProfessionData(profession: string, level: string, company: string) {
   console.log(`  Генерирую текстовый контент...`);
 
   const prompt = `
 Создай детальную карточку профессии для "${profession}" уровня ${level} в ${company}.
-
-Верни ТОЛЬКО валидный JSON (без markdown, без комментариев) со следующей структурой:
-
-{
-  "profession": "${profession}",
-  "level": "${level}",
-  "company": "${company}",
-  "schedule": [
-    {
-      "time": "10:00",
-      "title": "название активности",
-      "emoji": "⏰",
-      "description": "короткое описание или цитата",
-      "detail": "детальное описание что происходит, что делаешь, какие инструменты используешь"
-    }
-  ],
-  "stack": ["технология1", "технология2", "инструмент1"],
-  "benefits": [
-    {
-      "icon": "✨",
-      "text": "конкретная польза с цифрами или метриками"
-    }
-  ],
-  "careerPath": [
-    {
-      "level": "Junior",
-      "years": "1-2г",
-      "salary": "80k-150k"
-    }
-  ],
-  "skills": [
-    {
-      "name": "название скилла",
-      "level": 80
-    }
-  ],
-  "dialog": {
-    "message": "сообщение от коллеги или клиента",
-    "options": ["вариант ответа 1", "вариант ответа 2", "вариант ответа 3"],
-    "response": "реакция на первый вариант ответа"
-  }
-}
 
 ВАЖНЫЕ ТРЕБОВАНИЯ:
 - schedule: ровно 6 событий за рабочий день (с 10:00 до 18:00)
@@ -79,65 +61,193 @@ async function generateProfessionData(profession: string, level: string, company
 - В description используй цитаты или короткие фразы из рабочего процесса
 `;
 
-  const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash",
-    contents: prompt,
-    config: {
-      temperature: 0.9,
-      responseMimeType: "application/json", // Принудительно JSON
+  // Используем structured output (SOTA подход) для гарантии валидного JSON
+  const responseSchema = {
+    type: Type.OBJECT,
+    properties: {
+      profession: { type: Type.STRING },
+      level: { type: Type.STRING },
+      company: { type: Type.STRING },
+      schedule: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            time: { type: Type.STRING },
+            title: { type: Type.STRING },
+            emoji: { type: Type.STRING },
+            description: { type: Type.STRING },
+            detail: { type: Type.STRING },
+          },
+          required: ["time", "title", "emoji", "description", "detail"],
+        },
+      },
+      stack: {
+        type: Type.ARRAY,
+        items: { type: Type.STRING },
+      },
+      benefits: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            icon: { type: Type.STRING },
+            text: { type: Type.STRING },
+          },
+          required: ["icon", "text"],
+        },
+      },
+      careerPath: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            level: { type: Type.STRING },
+            years: { type: Type.STRING },
+            salary: { type: Type.STRING },
+          },
+          required: ["level", "years", "salary"],
+        },
+      },
+      skills: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            name: { type: Type.STRING },
+            level: { type: Type.NUMBER },
+          },
+          required: ["name", "level"],
+        },
+      },
+      dialog: {
+        type: Type.OBJECT,
+        properties: {
+          message: { type: Type.STRING },
+          options: {
+            type: Type.ARRAY,
+            items: { type: Type.STRING },
+          },
+          response: { type: Type.STRING },
+        },
+        required: ["message", "options", "response"],
+      },
     },
-  });
-  
-  const jsonText = response.text || '{}';
-  return JSON.parse(jsonText);
+    required: ["profession", "level", "company", "schedule", "stack", "benefits", "careerPath", "skills", "dialog"],
+  };
+
+  return await withRetry(async () => {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: prompt,
+      config: {
+        temperature: 0.9,
+        responseMimeType: "application/json",
+        responseSchema: responseSchema, // Structured output для гарантии валидного JSON
+      },
+    });
+    
+    const jsonText = response.text || '{}';
+    return JSON.parse(jsonText);
+  }, 3, 2000);
 }
 
 async function generateImages(profession: string, slug: string) {
   console.log(`  Генерирую изображения...`);
   
-  const prompts = [
-    `Professional workspace for ${profession}, modern office desk setup, realistic photo, high quality`,
-    `Computer screen showing dashboard and tools for ${profession}, close-up view, professional lighting`,
-    `${profession} team collaboration, people working together, candid workplace photo`,
-    `Tools and equipment used by ${profession}, organized workspace, professional photography`,
-  ];
+  // Определяем, IT профессия или нет (для разных промптов)
+  const isITProfession = profession.toLowerCase().includes('developer') || 
+                         profession.toLowerCase().includes('devops') ||
+                         profession.toLowerCase().includes('engineer') ||
+                         profession.toLowerCase().includes('программист') ||
+                         profession.toLowerCase().includes('разработчик');
+  
+  let prompts: string[];
+  
+  if (isITProfession) {
+    // Промпты для IT: фокус на экраны, код, хаос рабочего места
+    prompts = [
+      // 1. Рабочий момент POV с множественными экранами
+      `First-person view POV: ${profession} hands typing on mechanical keyboard, RGB backlight, dual monitors showing real code editor and terminal with commands, energy drink can, sticky notes with passwords on monitor frame, tangled cables, warm desk lamp light, 2am vibe, authentic programmer workspace chaos, ultrarealistic`,
+      
+      // 2. Крупный план экрана с реальной работой
+      `Extreme close-up: computer screen showing authentic ${profession} work - IDE with code, terminal logs scrolling, browser with Stack Overflow tabs, Slack message notifications popping, GitHub commits, blinking cursor, slight screen glare, coffee stain on desk visible in corner, person's tired reflection in screen, dim room lighting, cinematic`,
+      
+      // 3. Вид сверху на реальный рабочий стол
+      `Flat lay top-down: ${profession} messy workspace during active work - laptop covered with developer stickers (Linux, GitHub, etc), second monitor, mechanical keyboard, gaming mouse, smartphone showing work messages, open notebook with handwritten schemas and bugs, 3 coffee mugs, snack wrappers, USB cables everywhere, AirPods, smartwatch, afternoon natural light, authentic chaos`,
+      
+      // 4. Момент концентрации в ночной работе
+      `Cinematic wide shot: ${profession} deep in flow state at night, wearing hoodie, side profile, face illuminated only by multiple monitor glow in dark room, messy hair, intense focused expression, can of energy drink in hand, pizza box on desk, headphones on, code visible on screens, moody cyberpunk aesthetic, realistic photography`,
+    ];
+  } else {
+    // Промпты для не-IT профессий: фокус на реальное рабочее место, инструменты, атмосферу
+    prompts = [
+      // 1. Рабочий момент от первого лица
+      `First-person POV: ${profession} hands actively working, professional tools in use, realistic workplace environment, customers or colleagues visible in background, natural lighting, candid authentic moment, movement and energy, real-life mess and activity`,
+      
+      // 2. Крупный план инструментов в процессе работы
+      `Close-up shot: ${profession} professional equipment and tools being used, hands in action, detailed view of craft, authentic wear and tear on tools, workspace details, natural lighting, professional photography, realistic working conditions`,
+      
+      // 3. Вид сверху на рабочее пространство
+      `Flat lay overhead view: ${profession} workspace during busy shift - all necessary tools laid out, work in progress, organized chaos, professional equipment, order receipts or work documents, smartphone, keys, water bottle, authentic workspace mess, natural daylight`,
+      
+      // 4. Атмосферный момент в разгар рабочего дня
+      `Cinematic environmental shot: ${profession} in action during peak hours, dynamic movement, real customers or team around, authentic workplace atmosphere, natural expressions, busy environment, professional uniform or work attire, realistic lighting, documentary photography style, capturing the vibe and energy`,
+    ];
+  }
+  
+  console.log(`  Тип профессии: ${isITProfession ? 'IT' : 'не-IT'}`);
+  console.log(`  Используем специализированные промпты для генерации атмосферных изображений`);
+  
 
   const images = [];
   
   for (let i = 0; i < prompts.length; i++) {
+    console.log(`    Изображение ${i + 1}/4...`);
+    
     try {
-      console.log(`    Изображение ${i + 1}/4...`);
-      
-      const response = await ai.models.generateImages({
-        model: 'imagen-4.0-fast-generate-001', // Быстрая модель для хакатона
-        prompt: prompts[i],
-        config: {
-          numberOfImages: 1,
-          aspectRatio: "1:1",
-        },
-      });
+      const imagePath = await withRetry(async () => {
+        const response = await ai.models.generateImages({
+          model: 'imagen-4.0-fast-generate-001', // Быстрая модель для хакатона
+          prompt: prompts[i],
+          config: {
+            numberOfImages: 1,
+            aspectRatio: "1:1",
+          },
+        });
 
-      const image = response.generatedImages[0];
-      const imageDir = path.join(process.cwd(), 'public', 'generated', slug);
-      
-      if (!fs.existsSync(imageDir)) {
-        fs.mkdirSync(imageDir, { recursive: true });
-      }
+        if (!response.generatedImages || response.generatedImages.length === 0) {
+          throw new Error('No images generated');
+        }
 
-      const filename = `image-${i + 1}.png`;
-      const filepath = path.join(imageDir, filename);
+        const image = response.generatedImages[0];
+        if (!image.image?.imageBytes) {
+          throw new Error('Image data is missing');
+        }
+
+        const imageDir = path.join(process.cwd(), 'public', 'generated', slug);
+        
+        if (!fs.existsSync(imageDir)) {
+          fs.mkdirSync(imageDir, { recursive: true });
+        }
+
+        const filename = `image-${i + 1}.png`;
+        const filepath = path.join(imageDir, filename);
+        
+        // Сохраняем base64 в файл
+        const buffer = Buffer.from(image.image.imageBytes, 'base64');
+        fs.writeFileSync(filepath, buffer);
+        
+        return `/generated/${slug}/${filename}`;
+      }, 2, 1500); // 2 попытки для изображений (они долго генерируются)
       
-      // Сохраняем base64 в файл
-      const buffer = Buffer.from(image.image.imageBytes, 'base64');
-      fs.writeFileSync(filepath, buffer);
-      
-      images.push(`/generated/${slug}/${filename}`);
-      console.log(`    ✓ Сохранено: ${filename}`);
+      images.push(imagePath);
+      console.log(`    ✓ Сохранено: image-${i + 1}.png`);
       
       // Небольшая задержка между запросами
       await new Promise(resolve => setTimeout(resolve, 1000));
     } catch (error: any) {
-      console.error(`    ✗ Ошибка генерации изображения ${i + 1}:`, error.message);
+      console.error(`    ✗ Ошибка генерации изображения ${i + 1} после всех попыток:`, error.message);
       // Используем плейсхолдер если генерация не удалась
       images.push(`https://placehold.co/400x400/1e293b/9333ea?text=Image+${i + 1}`);
     }
@@ -191,9 +301,9 @@ async function fetchVacanciesStats(profession: string) {
   console.log(`  Получаю статистику вакансий с HH.ru...`);
   
   try {
-    // Получаем топ-20 вакансий для анализа
+    // Получаем топ-20 вакансий для анализа из России (area=113)
     const response = await fetch(
-      `https://api.hh.ru/vacancies?text=${encodeURIComponent(profession)}&per_page=20&order_by=relevance`
+      `https://api.hh.ru/vacancies?text=${encodeURIComponent(profession)}&per_page=20&order_by=relevance&area=113`
     );
     const data = await response.json();
     
@@ -206,20 +316,32 @@ async function fetchVacanciesStats(profession: string) {
     const companies: string[] = [];
     
     data.items?.forEach((vacancy: any) => {
-      if (vacancy.salary?.from) {
-        salaries.push(vacancy.salary.from);
+      // Обрабатываем только вакансии с зарплатой в рублях (RUR)
+      if (vacancy.salary && vacancy.salary.currency === 'RUR') {
+        const from = vacancy.salary.from;
+        const to = vacancy.salary.to;
+        
+        // Вычисляем среднее значение для вакансии
+        if (from && to) {
+          // Если указаны оба значения, берем среднее
+          salaries.push((from + to) / 2);
+        } else if (from) {
+          // Если только "от", используем его
+          salaries.push(from);
+        } else if (to) {
+          // Если только "до", используем его
+          salaries.push(to);
+        }
       }
-      if (vacancy.salary?.to) {
-        salaries.push(vacancy.salary.to);
-      }
+      
       if (vacancy.employer?.name) {
         companies.push(vacancy.employer.name);
       }
     });
     
-    // Средняя зарплата
+    // Средняя зарплата (округляем до тысяч)
     const avgSalary = salaries.length > 0 
-      ? Math.round(salaries.reduce((a, b) => a + b, 0) / salaries.length)
+      ? Math.round(salaries.reduce((a, b) => a + b, 0) / salaries.length / 1000) * 1000
       : null;
     
     // Топ компании (уникальные, первые 5)
@@ -227,7 +349,9 @@ async function fetchVacanciesStats(profession: string) {
     
     console.log(`    ✓ Найдено вакансий: ${found}`);
     if (avgSalary) {
-      console.log(`    ✓ Средняя зарплата: ${avgSalary.toLocaleString('ru-RU')} ₽`);
+      console.log(`    ✓ Средняя зарплата: ${avgSalary.toLocaleString('ru-RU')} ₽ (на основе ${salaries.length} вакансий с указанной зарплатой)`);
+    } else {
+      console.log(`    ⚠ Средняя зарплата: не указана в вакансиях`);
     }
     if (topCompanies.length > 0) {
       console.log(`    ✓ Топ компании: ${topCompanies.slice(0, 3).join(', ')}`);
@@ -250,9 +374,82 @@ async function fetchVacanciesStats(profession: string) {
   }
 }
 
+// Функция транслитерации для slug
+function transliterate(text: string): string {
+  const translitMap: Record<string, string> = {
+    'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'е': 'e', 'ё': 'yo', 
+    'ж': 'zh', 'з': 'z', 'и': 'i', 'й': 'y', 'к': 'k', 'л': 'l', 'м': 'm', 
+    'н': 'n', 'о': 'o', 'п': 'p', 'р': 'r', 'с': 's', 'т': 't', 'у': 'u', 
+    'ф': 'f', 'х': 'h', 'ц': 'ts', 'ч': 'ch', 'ш': 'sh', 'щ': 'sch', 
+    'ъ': '', 'ы': 'y', 'ь': '', 'э': 'e', 'ю': 'yu', 'я': 'ya'
+  };
+  
+  return text
+    .toLowerCase()
+    .split('')
+    .map(char => translitMap[char] || char)
+    .join('')
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9\-]/g, '');
+}
+
+// Генерация одной профессии
+async function generateOneProfession(
+  prof: { name: string; level: string; company: string },
+  index: number,
+  total: number,
+  dataDir: string
+) {
+  const startTime = Date.now();
+  console.log(`\n[${index + 1}/${total}] 📝 ${prof.name} (${prof.level} в ${prof.company})`);
+  console.log('─'.repeat(60));
+  
+  try {
+    // 1. Генерация текстового контента через Gemini
+    const data = await generateProfessionData(prof.name, prof.level, prof.company);
+    
+    // Создаем slug
+    const slug = transliterate(prof.name);
+    
+    // 2-4. Параллельная генерация изображений, статистики и видео
+    console.log(`  🚀 Запускаю параллельную генерацию контента...`);
+    const [images, vacanciesStats, videos] = await Promise.all([
+      generateImages(prof.name, slug),
+      fetchVacanciesStats(prof.name),
+      fetchYouTubeVideos(prof.name),
+    ]);
+    
+    // 5. Объединяем всё в один объект
+    const fullData = {
+      ...data,
+      slug,
+      images,
+      ...vacanciesStats,
+      videos,
+      generatedAt: new Date().toISOString(),
+    };
+
+    // 6. Сохраняем в JSON файл
+    const filepath = path.join(dataDir, `${slug}.json`);
+    fs.writeFileSync(filepath, JSON.stringify(fullData, null, 2), 'utf-8');
+    
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.log(`  ✅ Сохранено: data/professions/${slug}.json (${elapsed}s)`);
+    
+    return { slug, profession: prof.name, success: true };
+  } catch (error: any) {
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.error(`  ❌ ОШИБКА для ${prof.name} после ${elapsed}s:`, error.message);
+    return { slug: '', profession: prof.name, success: false, error: error.message };
+  }
+}
+
 async function generateAll() {
-  console.log('\n🚀 Начинаем генерацию профессий...\n');
-  console.log(`Всего профессий: ${professions.length}\n`);
+  const startTime = Date.now();
+  
+  console.log('\n🚀 Начинаем ПАРАЛЛЕЛЬНУЮ генерацию профессий...\n');
+  console.log(`Всего профессий: ${professions.length}`);
+  console.log(`Режим: все профессии генерируются одновременно\n`);
   
   if (!process.env.GOOGLE_API_KEY) {
     console.error('❌ ОШИБКА: Не найден GOOGLE_API_KEY в .env.local');
@@ -265,89 +462,36 @@ async function generateAll() {
     fs.mkdirSync(dataDir, { recursive: true });
   }
 
-  const results = [];
-
-  for (let i = 0; i < professions.length; i++) {
-    const prof = professions[i];
-    console.log(`\n[${ i + 1}/${professions.length}] 📝 ${prof.name} (${prof.level} в ${prof.company})`);
-    console.log('─'.repeat(60));
-    
-    try {
-      // 1. Генерация текстового контента через Gemini
-      const data = await generateProfessionData(prof.name, prof.level, prof.company);
-      
-      // Транслитерация для кириллицы
-      const translitMap: Record<string, string> = {
-        'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'е': 'e', 'ё': 'yo', 
-        'ж': 'zh', 'з': 'z', 'и': 'i', 'й': 'y', 'к': 'k', 'л': 'l', 'м': 'm', 
-        'н': 'n', 'о': 'o', 'п': 'p', 'р': 'r', 'с': 's', 'т': 't', 'у': 'u', 
-        'ф': 'f', 'х': 'h', 'ц': 'ts', 'ч': 'ch', 'ш': 'sh', 'щ': 'sch', 
-        'ъ': '', 'ы': 'y', 'ь': '', 'э': 'e', 'ю': 'yu', 'я': 'ya'
-      };
-      
-      const slug = prof.name
-        .toLowerCase()
-        .split('')
-        .map(char => translitMap[char] || char)
-        .join('')
-        .replace(/\s+/g, '-')
-        .replace(/[^a-z0-9\-]/g, '');
-      
-      // 2. Генерация изображений через Imagen
-      const images = await generateImages(prof.name, slug);
-      
-      // 3. Статистика вакансий из HH.ru API
-      const vacanciesStats = await fetchVacanciesStats(prof.name);
-      
-      // 4. Поиск видео на YouTube
-      const videos = await fetchYouTubeVideos(prof.name);
-      
-      // 5. Объединяем всё в один объект
-      const fullData = {
-        ...data,
-        slug,
-        images,
-        ...vacanciesStats,
-        videos,
-        generatedAt: new Date().toISOString(),
-      };
-
-      // 5. Сохраняем в JSON файл
-      const filepath = path.join(dataDir, `${slug}.json`);
-      fs.writeFileSync(filepath, JSON.stringify(fullData, null, 2), 'utf-8');
-      
-      console.log(`  ✅ Сохранено: data/professions/${slug}.json`);
-      
-      results.push({ slug, profession: prof.name, success: true });
-      
-      // Задержка между профессиями чтобы не превысить rate limits
-      if (i < professions.length - 1) {
-        console.log('\n  ⏳ Пауза 3 секунды...');
-        await new Promise(resolve => setTimeout(resolve, 3000));
-      }
-      
-    } catch (error: any) {
-      console.error(`  ❌ ОШИБКА для ${prof.name}:`, error.message);
-      results.push({ slug: '', profession: prof.name, success: false, error: error.message });
-    }
-  }
+  // Параллельная генерация всех профессий
+  const results = await Promise.allSettled(
+    professions.map((prof, index) => 
+      generateOneProfession(prof, index, professions.length, dataDir)
+    )
+  );
   
-  console.log('\n' + '='.repeat(60));
-  console.log('🎉 ГЕНЕРАЦИЯ ЗАВЕРШЕНА!\n');
+  const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
+  
+  console.log('\n' + '='.repeat(70));
+  console.log(`🎉 ГЕНЕРАЦИЯ ЗАВЕРШЕНА за ${totalTime}s!\n`);
   
   console.log('Результаты:');
-  results.forEach(r => {
-    if (r.success) {
-      console.log(`  ✅ ${r.profession} → data/professions/${r.slug}.json`);
+  const successfulResults = results.filter(r => r.status === 'fulfilled' && r.value.success);
+  const failedResults = results.filter(r => r.status === 'rejected' || (r.status === 'fulfilled' && !r.value.success));
+  
+  results.forEach((result, index) => {
+    if (result.status === 'fulfilled' && result.value.success) {
+      console.log(`  ✅ ${result.value.profession} → data/professions/${result.value.slug}.json`);
+    } else if (result.status === 'fulfilled') {
+      console.log(`  ❌ ${result.value.profession} → ОШИБКА: ${result.value.error}`);
     } else {
-      console.log(`  ❌ ${r.profession} → ОШИБКА`);
+      console.log(`  ❌ ${professions[index].name} → ОШИБКА: ${result.reason}`);
     }
   });
   
-  const successCount = results.filter(r => r.success).length;
-  console.log(`\nУспешно: ${successCount}/${results.length}`);
+  console.log(`\nУспешно: ${successfulResults.length}/${results.length}`);
+  console.log(`⚡ Средняя скорость: ${(parseFloat(totalTime) / professions.length).toFixed(1)}s на профессию`);
   
-  if (successCount > 0) {
+  if (successfulResults.length > 0) {
     console.log('\n💡 Теперь можно запустить: npm run dev');
   }
 }
