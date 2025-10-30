@@ -3,10 +3,10 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
+import ChatInterface from '@/components/ChatInterface';
 
 export default function Home() {
-  const [profession, setProfession] = useState('');
-  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [showChat, setShowChat] = useState(false);
   const [availableProfessions, setAvailableProfessions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -24,15 +24,6 @@ export default function Home() {
       });
   }, []);
 
-  const suggestions = [
-    'DevOps Engineer',
-    'Frontend Developer',
-    'Backend Developer',
-    'Data Scientist',
-    'Product Manager',
-    'UX/UI Designer',
-  ];
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
       <div className="container mx-auto px-4 py-16">
@@ -46,37 +37,32 @@ export default function Home() {
           </p>
         </div>
 
-        {/* Search Box */}
-        <div className="max-w-3xl mx-auto mb-12">
-          <div className="relative">
-            <input
-              type="text"
-              value={profession}
-              onChange={(e) => setProfession(e.target.value)}
-              onFocus={() => setShowSuggestions(true)}
-              placeholder="Напиши профессию... (например, DevOps Engineer)"
-              className="w-full px-6 py-5 text-lg rounded-2xl bg-white/10 backdrop-blur-lg border border-white/20 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
-            />
-            <button className="absolute right-3 top-1/2 -translate-y-1/2 px-6 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-medium transition-colors">
-              Погнали 🚀
-            </button>
-          </div>
-
-          {/* Suggestions */}
-          {showSuggestions && (
-            <div className="mt-4 grid grid-cols-2 md:grid-cols-3 gap-3">
-              {suggestions.map((sug) => (
-                <button
-                  key={sug}
-                  onClick={() => setProfession(sug)}
-                  className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-white text-sm transition-colors"
-                >
-                  {sug}
-                </button>
-              ))}
+        {/* Chat Interface */}
+        {!showChat ? (
+          <div className="max-w-3xl mx-auto mb-12">
+            <div 
+              onClick={() => setShowChat(true)}
+              className="cursor-pointer p-8 bg-white/10 backdrop-blur-lg rounded-2xl border border-white/20 hover:border-purple-500 transition-all hover:scale-105"
+            >
+              <div className="text-center">
+                <div className="text-6xl mb-4">💬</div>
+                <h3 className="text-2xl font-bold text-white mb-3">
+                  Начни разговор с AI-ассистентом
+                </h3>
+                <p className="text-gray-300 mb-4">
+                  Расскажи, какую профессию ищешь, или просто напиши "не знаю" — я помогу разобраться
+                </p>
+                <div className="inline-block px-6 py-3 bg-purple-600 text-white rounded-xl font-medium">
+                  Начать чат 🚀
+                </div>
+              </div>
             </div>
-          )}
-        </div>
+          </div>
+        ) : (
+          <div className="max-w-5xl mx-auto mb-12 bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 overflow-hidden" style={{ height: '600px' }}>
+            <ChatInterface onClose={() => setShowChat(false)} />
+          </div>
+        )}
 
         {/* Available Professions */}
         {availableProfessions.length > 0 && (

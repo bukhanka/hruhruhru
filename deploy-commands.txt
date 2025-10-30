@@ -1,0 +1,85 @@
+# Команды для деплоя на hhhack.agiin2024.ru
+
+## 1. Подключиться к серверу
+ssh root@194.87.200.140
+
+## 2. Скачать скрипт деплоя и выполнить
+curl -o deploy.sh https://raw.githubusercontent.com/bukhanka/hruhruhru/main/deploy.sh
+chmod +x deploy.sh
+./deploy.sh
+
+## ИЛИ вручную:
+
+### Установить необходимые пакеты
+apt update && apt upgrade -y
+curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+apt install -y nodejs nginx certbot python3-certbot-nginx
+npm install -g pm2
+
+### Клонировать репозиторий
+cd /var/www
+git clone https://github.com/bukhanka/hruhruhru hhhack
+cd hhhack/web
+
+### Собрать проект
+npm ci
+npm run build
+
+### Создать .env.local (если нужно)
+cat > .env.local << 'EOF'
+# Environment variables
+EOF
+
+### Создать конфиг nginx
+cat > /etc/nginx/sites-available/hhhack.agiin2024.ru << 'EOF'
+server {
+    listen 80;
+    server_name hhhack.agiin2024.ru;
+
+    location / {
+        proxy_pass http://localhost:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+EOF
+
+### Активировать сайт
+ln -sf /etc/nginx/sites-available/hhhack.agiin2024.ru /etc/nginx/sites-enabled/
+rm -f /etc/nginx/sites-enabled/default
+nginx -t
+systemctl restart nginx
+systemctl enable nginx
+
+### Запустить приложение
+cd /var/www/hhhack/web
+pm2 start npm --name "hhhack" -- start -- -p 3000
+pm2 save
+pm2 startup systemd
+
+### Настроить SSL
+certbot --nginx -d hhhack.agiin2024.ru --non-interactive --agree-tos --email admin@hhhack.agiin2024.ru
+
+### Полезные команды
+pm2 status           # Статус приложения
+pm2 logs hhhack      # Логи
+pm2 restart hhhack   # Перезапуск
+pm2 stop hhhack      # Остановка
+
+nginx -t             # Проверка конфига nginx
+systemctl restart nginx  # Перезапуск nginx
+
+# Обновление приложения
+cd /var/www/hhhack
+git pull origin main
+cd web
+npm ci
+npm run build
+pm2 restart hhhack
+
