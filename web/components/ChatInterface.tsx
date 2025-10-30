@@ -53,7 +53,16 @@ export default function ChatInterface({ onClose }: { onClose?: () => void }) {
         }),
       });
 
+      if (!response.ok) {
+        throw new Error(`API вернул ошибку: ${response.status} ${response.statusText}`);
+      }
+
       const data = await response.json();
+
+      // Проверяем наличие сообщения в ответе
+      if (!data.message) {
+        throw new Error('Ответ от API не содержит сообщения');
+      }
 
       // Update persona and stage
       if (data.persona) {
@@ -67,16 +76,18 @@ export default function ChatInterface({ onClose }: { onClose?: () => void }) {
       addMessage({
         role: 'assistant',
         type: data.message.type || 'text',
-        content: data.message.content,
+        content: data.message.content || 'Нет ответа от сервера',
         buttons: data.message.buttons,
         cards: data.message.cards,
+        metadata: data.message.metadata, // Сохраняем metadata для отслеживания уточняющих вопросов
       });
     } catch (error) {
       console.error('Error sending message:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Неизвестная ошибка';
       addMessage({
         role: 'assistant',
         type: 'text',
-        content: 'Извини, произошла ошибка. Попробуй еще раз.',
+        content: `Извини, произошла ошибка: ${errorMessage}. Попробуй еще раз или проверь подключение к интернету.`,
       });
     } finally {
       setTyping(false);

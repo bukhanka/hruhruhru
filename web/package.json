@@ -20,10 +20,13 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
+    "@types/node-fetch": "^2.6.13",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.0.1",
+    "https-proxy-agent": "^7.0.6",
+    "node-fetch": "^3.3.2",
     "tailwindcss": "^4",
     "tsx": "^4.20.6",
     "typescript": "^5"

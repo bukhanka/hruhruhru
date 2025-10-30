@@ -6,6 +6,9 @@ import dotenv from "dotenv";
 // Загружаем переменные окружения из .env.local
 dotenv.config({ path: '.env.local' });
 
+// Настройка прокси (импортируем после dotenv, чтобы переменные окружения были доступны)
+import "../lib/proxy-config";
+
 // Единый клиент для Gemini + Imagen
 const ai = new GoogleGenAI({
   apiKey: process.env.GOOGLE_API_KEY!,

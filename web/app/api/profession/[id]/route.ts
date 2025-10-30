@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { promises as fs } from 'fs';
 import path from 'path';
+import { determineProfessionType } from '@/lib/card-generator';
 
 export async function GET(
   request: NextRequest,
@@ -15,6 +16,11 @@ export async function GET(
     // Читаем файл
     const fileContent = await fs.readFile(filePath, 'utf-8');
     const data = JSON.parse(fileContent);
+    
+    // Если поле isIT отсутствует, определяем его
+    if (data.isIT === undefined && data.profession) {
+      data.isIT = await determineProfessionType(data.profession);
+    }
     
     return NextResponse.json(data);
   } catch (error: any) {

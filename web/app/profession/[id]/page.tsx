@@ -138,9 +138,11 @@ export default function ProfessionPage({ params }: { params: Promise<{ id: strin
           </div>
         </div>
 
-        {/* Tech Stack */}
+        {/* Tech Stack / Рабочие навыки */}
         <div className="mb-8 p-8 bg-slate-800/50 rounded-2xl border border-white/10">
-          <h3 className="text-2xl font-semibold text-white mb-6">🛠 Твой стек</h3>
+          <h3 className="text-2xl font-semibold text-white mb-6">
+            {data.isIT === true ? '🛠 Твой стек' : '🛠 Рабочие навыки и инструменты'}
+          </h3>
           <div className="flex flex-wrap gap-3">
             {data.stack?.map((tech: string) => (
               <span key={tech} className="px-4 py-2 bg-purple-600/20 border border-purple-500/30 rounded-lg text-purple-300 font-medium hover:bg-purple-600/30 transition-colors">

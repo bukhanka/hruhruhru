@@ -54,5 +54,6 @@ export interface ProfessionData {
   slug: string;
   images: string[];
   generatedAt: string;
+  isIT?: boolean;
 }
 

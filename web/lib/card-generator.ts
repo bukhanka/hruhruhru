@@ -1,6 +1,7 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import * as fs from "fs";
 import * as path from "path";
+import "./proxy-config"; // Настройка прокси
 
 // Инициализация клиента Google AI
 let aiClient: GoogleGenAI | null = null;
@@ -68,6 +69,58 @@ async function withRetry<T>(
   throw new Error('Unreachable');
 }
 
+// Функция определения IT/не IT профессии
+export async function determineProfessionType(profession: string): Promise<boolean> {
+  const itKeywords = [
+    'developer', 'разработчик', 'программист', 'engineer', 'инженер',
+    'devops', 'системный администратор', 'сисадмин', 'qa', 'тестировщик',
+    'data scientist', 'дата саентист', 'analyst', 'аналитик', 'architect',
+    'архитектор', 'tech lead', 'team lead', 'frontend', 'backend', 'fullstack',
+    'ui/ux', 'designer', 'дизайнер', 'product manager', 'продакт менеджер',
+    'scrum master', 'project manager', 'менеджер проектов'
+  ];
+  
+  const professionLower = profession.toLowerCase();
+  
+  // Проверяем наличие IT ключевых слов
+  const hasITKeyword = itKeywords.some(keyword => professionLower.includes(keyword));
+  
+  if (hasITKeyword) {
+    return true;
+  }
+  
+  // Используем AI для более точного определения, если не нашли явных маркеров
+  try {
+    const ai = getAIClient();
+    const prompt = `Определи, является ли профессия "${profession}" IT-профессией.
+
+IT-профессии связаны с разработкой программного обеспечения, информационными технологиями, программированием, системным администрированием, тестированием ПО, дизайном интерфейсов в IT, управлением IT-проектами.
+
+НЕ IT-профессии: массажист, повар, каменщик, водитель, врач, учитель, менеджер по продажам (не IT), HR-менеджер (не IT), бухгалтер и т.д.
+
+Ответь ТОЛЬКО в формате JSON:
+{
+  "isIT": true или false
+}`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+      config: {
+        temperature: 0.3,
+        responseMimeType: 'application/json',
+      },
+    });
+
+    const result = JSON.parse(response.text || '{"isIT": false}');
+    return result.isIT === true;
+  } catch (error: any) {
+    console.error('Ошибка определения типа профессии:', error);
+    // По умолчанию считаем не IT, если не можем определить
+    return false;
+  }
+}
+
 // Функция транслитерации для slug
 export function transliterate(text: string): string {
   const translitMap: Record<string, string> = {
@@ -119,22 +172,42 @@ export async function generateProfessionData(
   company: string,
   onProgress?: (message: string, progress: number) => void
 ) {
+  if (onProgress) onProgress('Определяю тип профессии...', 5);
+  
+  // Определяем тип профессии
+  const isIT = await determineProfessionType(profession);
+  
   if (onProgress) onProgress('Генерирую текстовый контент...', 10);
+
+  const stackLabel = isIT ? 'стек технологий' : 'рабочие навыки и инструменты';
+  const stackDescription = isIT 
+    ? '8-10 технологий/инструментов конкретно для этой профессии (например: React.js, TypeScript, Docker и т.д.)'
+    : '8-10 рабочих навыков, инструментов и оборудования конкретно для этой профессии (например: профессиональные масла, массажный стол, система онлайн-бронирования и т.д.)';
+  
+  const careerPathDescription = isIT
+    ? '4 этапа карьеры с названиями типа "Junior [Профессия]", "Middle [Профессия]", "Senior [Профессия]", "Tech Lead / Architect" или аналогичными IT-названиями'
+    : '4 этапа карьеры с реальными названиями должностей для этой профессии (НЕ используй "Junior", "Middle", "Senior" - используй реальные названия должностей, например: "Массажист", "Старший массажист", "Ведущий специалист", "Руководитель отдела" или аналогичные)';
 
   const prompt = `
 Создай детальную карточку профессии для "${profession}" уровня ${level} в ${company}.
 
 ВАЖНЫЕ ТРЕБОВАНИЯ:
 - schedule: ровно 6 событий за рабочий день (с 10:00 до 18:00)
-- stack: 8-10 технологий/инструментов конкретно для этой профессии
+- stack: ${stackDescription}
 - benefits: ровно 4 пункта с конкретными цифрами и метриками
-- careerPath: ровно 4 этапа карьеры с реальными зарплатами в рублях
+- careerPath: ${careerPathDescription} с реальными зарплатами в рублях
 - skills: ровно 5 ключевых скиллов с уровнем от 40 до 90
 - dialog: реалистичный диалог с коллегой/клиентом
 - Всё на русском языке
 - Эмоционально, живо, с деталями атмосферы
 - Используй разные эмодзи для каждого события в schedule
 - В description используй цитаты или короткие фразы из рабочего процесса
+
+${!isIT ? `
+КРИТИЧЕСКИ ВАЖНО для НЕ IT профессии:
+- В careerPath НЕ используй слова "Junior", "Middle", "Senior" - используй реальные названия должностей из данной профессии
+- В stack указывай рабочие навыки, инструменты и оборудование, а не технологические стеки
+` : ''}
 `;
 
   const responseSchema = {
@@ -227,7 +300,10 @@ export async function generateProfessionData(
       
       const jsonText = response.text || '{}';
       if (onProgress) onProgress('Текстовый контент готов ✅', 30);
-      return JSON.parse(jsonText);
+      const data = JSON.parse(jsonText);
+      // Добавляем флаг isIT к данным
+      data.isIT = isIT;
+      return data;
     } catch (error: any) {
       // Пробрасываем ошибку через extractErrorMessage для корректной обработки
       const errorMessage = extractErrorMessage(error);
@@ -240,7 +316,8 @@ export async function generateProfessionData(
 export async function generateImages(
   profession: string,
   slug: string,
-  onProgress?: (message: string, progress: number) => void
+  onProgress?: (message: string, progress: number) => void,
+  professionDescription?: string // Уточненное описание профессии для более точных промптов
 ): Promise<string[]> {
   if (onProgress) onProgress('Генерирую изображения...', 35);
   
@@ -260,11 +337,17 @@ export async function generateImages(
       `Cinematic wide shot: ${profession} deep in flow state at night, wearing hoodie, side profile, face illuminated only by multiple monitor glow in dark room, messy hair, intense focused expression, can of energy drink in hand, pizza box on desk, headphones on, code visible on screens, moody cyberpunk aesthetic, realistic photography`,
     ];
   } else {
+    // Используем уточненное описание если оно есть, иначе используем название профессии
+    // Если есть уточненное описание, используем его для более точных промптов
+    const mainContext = professionDescription 
+      ? `${profession} - ${professionDescription}`
+      : profession;
+    
     prompts = [
-      `First-person POV: ${profession} hands actively working, professional tools in use, realistic workplace environment, customers or colleagues visible in background, natural lighting, candid authentic moment, movement and energy, real-life mess and activity`,
-      `Close-up shot: ${profession} professional equipment and tools being used, hands in action, detailed view of craft, authentic wear and tear on tools, workspace details, natural lighting, professional photography, realistic working conditions`,
-      `Flat lay overhead view: ${profession} workspace during busy shift - all necessary tools laid out, work in progress, organized chaos, professional equipment, order receipts or work documents, smartphone, keys, water bottle, authentic workspace mess, natural daylight`,
-      `Cinematic environmental shot: ${profession} in action during peak hours, dynamic movement, real customers or team around, authentic workplace atmosphere, natural expressions, busy environment, professional uniform or work attire, realistic lighting, documentary photography style, capturing the vibe and energy`,
+      `First-person POV: ${mainContext} hands actively working, professional tools and equipment specific to this profession in use, realistic workplace environment${professionDescription ? ` showing ${professionDescription}` : ''}, customers or colleagues visible in background, natural lighting, candid authentic moment, movement and energy, real-life mess and activity`,
+      `Close-up shot: ${mainContext} professional equipment and tools being used, hands in action, detailed view of craft${professionDescription ? `, showing ${professionDescription}` : ''}, authentic wear and tear on tools, workspace details, natural lighting, professional photography, realistic working conditions`,
+      `Flat lay overhead view: ${mainContext} workspace during busy shift - all necessary tools laid out${professionDescription ? ` for ${professionDescription}` : ''}, work in progress, organized chaos, professional equipment, order receipts or work documents, smartphone, keys, water bottle, authentic workspace mess, natural daylight`,
+      `Cinematic environmental shot: ${mainContext} in action during peak hours${professionDescription ? `, showing ${professionDescription}` : ''}, dynamic movement, real customers or team around, authentic workplace atmosphere, natural expressions, busy environment, professional uniform or work attire, realistic lighting, documentary photography style, capturing the vibe and energy`,
     ];
   }
 
@@ -447,7 +530,8 @@ export async function generateCard(
   profession: string,
   level: string = "Middle",
   company: string = "стартап",
-  onProgress?: (message: string, progress: number) => void
+  onProgress?: (message: string, progress: number) => void,
+  professionDescription?: string // Уточненное описание профессии
 ) {
   const slug = transliterate(profession);
   
@@ -474,7 +558,7 @@ export async function generateCard(
         const totalProgress = 30 + (prog / 100) * 60;
         onProgress(msg, totalProgress);
       }
-    }),
+    }, professionDescription), // Передаем уточненное описание
     fetchVacanciesStats(profession, () => {
       // Статистика быстрая, не отслеживаем прогресс отдельно
     }),
@@ -501,5 +585,109 @@ export async function generateCard(
   if (onProgress) onProgress('Генерация завершена! ✅', 100);
   
   return fullData;
+}
+
+// Генерация уточняющих вопросов о профессии
+export async function generateProfessionClarificationQuestion(
+  profession: string,
+  history: any[]
+): Promise<{ content: string; buttons: string[] }> {
+  const ai = getAIClient();
+  
+  const conversationContext = history
+    .slice(-5)
+    .map((m) => `${m.role}: ${m.content}`)
+    .join('\n');
+  
+  const prompt = `Ты AI-ассистент для карьерного консультирования. Пользователь хочет узнать о профессии "${profession}".
+
+Профессия может иметь разные значения или специализации. Например:
+- "Крановщик" может означать человека, который работает на кране, или человека, который работает с машинами
+- "Массажист" может быть классическим массажистом или спортивным массажистом
+- И т.д.
+
+История диалога:
+${conversationContext}
+
+Проанализируй профессию "${profession}" и сгенерируй уточняющий вопрос с вариантами ответов, чтобы понять, что именно имеет в виду пользователь.
+
+Ответь ТОЛЬКО в формате JSON:
+{
+  "content": "короткий уточняющий вопрос (например: 'Вы имеете в виду человека, который работает на кране?')",
+  "buttons": ["Да, именно он", "Нет, человек который работает с машинами", "Другое"]
+}
+
+Кнопки должны быть короткими (до 6 слов) и конкретными, отражающими возможные варианты значения профессии.`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+      config: {
+        temperature: 0.7,
+        responseMimeType: 'application/json',
+      },
+    });
+
+    const result = JSON.parse(response.text || '{}');
+    
+    return {
+      content: result.content || `Вы имеете в виду человека, который работает как ${profession}?`,
+      buttons: result.buttons || ['Да', 'Нет, другое'],
+    };
+  } catch (error: any) {
+    console.error('Ошибка генерации уточняющего вопроса:', error);
+    return {
+      content: `Вы имеете в виду человека, который работает как ${profession}?`,
+      buttons: ['Да', 'Нет, другое'],
+    };
+  }
+}
+
+// Извлечение уточненного описания профессии из ответа пользователя
+export async function extractProfessionDescription(
+  profession: string,
+  userAnswer: string,
+  history: any[]
+): Promise<string | null> {
+  const ai = getAIClient();
+  
+  const conversationContext = history
+    .slice(-5)
+    .map((m) => `${m.role}: ${m.content}`)
+    .join('\n');
+  
+  const prompt = `Ты AI-ассистент для карьерного консультирования. Пользователь уточняет профессию "${profession}".
+
+Вопрос был задан об этой профессии, и пользователь ответил: "${userAnswer}"
+
+История диалога:
+${conversationContext}
+
+Определи, что именно имеет в виду пользователь под профессией "${profession}" на основе его ответа.
+
+Ответь ТОЛЬКО в формате JSON:
+{
+  "description": "краткое описание того, что именно делает этот специалист (например: 'человек, который работает на башенном кране на строительной площадке' или 'человек, который работает с машинами и механизмами')"
+}
+
+Если пользователь подтвердил первоначальное понимание (ответил "Да", "Именно так" и т.д.), верни описание первоначального понимания профессии.`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+      config: {
+        temperature: 0.3,
+        responseMimeType: 'application/json',
+      },
+    });
+
+    const result = JSON.parse(response.text || '{}');
+    return result.description || null;
+  } catch (error: any) {
+    console.error('Ошибка извлечения описания профессии:', error);
+    return null;
+  }
 }
 
