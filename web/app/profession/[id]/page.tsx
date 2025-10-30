@@ -1,37 +1,111 @@
 'use client';
 
-import { useState, useEffect, use } from 'react';
+import { useState, useEffect, useMemo, use, type ReactNode } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 
+const tabs = [
+  { id: 'overview', label: 'Обзор', emoji: '👀' },
+  { id: 'schedule', label: 'Расписание', emoji: '📅' },
+  { id: 'skills', label: 'Навыки', emoji: '🎯' },
+  { id: 'career', label: 'Карьера', emoji: '📈' },
+];
+
+type ProfessionData = {
+  profession: string;
+  level?: string;
+  company?: string;
+  images?: string[];
+  benefits?: { icon: string; text: string }[];
+  dialog?: { message: string; options?: string[]; response: string };
+  schedule?: { time: string; title: string; description: string; detail?: string; emoji?: string }[];
+  stack?: string[];
+  skills?: { name: string; level: number }[];
+  careerPath?: { level: string; years: string; salary: string }[];
+  avgSalary?: number;
+  vacancies?: number;
+  competition?: string;
+  topCompanies?: string[];
+  videos?: { videoId: string; title: string; thumbnail: string; channelTitle: string }[];
+  generatedAt?: string;
+};
+
 export default function ProfessionPage({ params }: { params: Promise<{ id: string }> }) {
-  const unwrappedParams = use(params);
-  const [data, setData] = useState<any>(null);
+  const { id } = use(params);
+  const [data, setData] = useState<ProfessionData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<string>('overview');
   const [selectedTime, setSelectedTime] = useState<number | null>(null);
   const [dialogAnswer, setDialogAnswer] = useState<string | null>(null);
   const [soundPlaying, setSoundPlaying] = useState(false);
+  const [activeVideo, setActiveVideo] = useState(0);
+  const [isVideoOverlayOpen, setVideoOverlayOpen] = useState(false);
 
   useEffect(() => {
-    // Загружаем данные из сгенерированного JSON
-    fetch(`/api/profession/${unwrappedParams.id}`)
-      .then(res => res.json())
-      .then(data => {
-        setData(data);
+    fetch(`/api/profession/${id}`)
+      .then((response) => response.json())
+      .then((payload) => {
+        setData(payload);
+        setActiveVideo(0);
         setLoading(false);
       })
-      .catch(err => {
-        console.error('Error loading profession:', err);
+      .catch((error) => {
+        console.error('Error loading profession:', error);
         setLoading(false);
       });
-  }, [unwrappedParams.id]);
+  }, [id]);
+
+  useEffect(() => {
+    if (isVideoOverlayOpen) {
+      const original = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = original;
+      };
+    }
+    return undefined;
+  }, [isVideoOverlayOpen]);
+
+  const heroImage = useMemo(() => {
+    if (data?.images && data.images.length > 0) {
+      return data.images[0];
+    }
+    return '/generated/image-1.png';
+  }, [data]);
+
+  const handleTabClick = (tabId: string) => {
+    setActiveTab(tabId);
+    const target = document.getElementById(tabId);
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+
+  const vibeLabels = ['Утро в офисе ☀️', 'Фокус & Код 💻', 'Командный вайб 🤝', 'Инсайты и обучение ✨', 'Afterwork chill 🎧'];
+
+  const currentVideo = useMemo(() => {
+    if (!data?.videos || data.videos.length === 0) {
+      return null;
+    }
+    const safeIndex = activeVideo >= 0 && activeVideo < data.videos.length ? activeVideo : 0;
+    return data.videos[safeIndex];
+  }, [data, activeVideo]);
+
+  const openVideo = (index: number) => {
+    setActiveVideo(index);
+    setVideoOverlayOpen(true);
+  };
+
+  const closeVideo = () => {
+    setVideoOverlayOpen(false);
+  };
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
-        <div className="text-center">
-          <div className="text-6xl mb-4">⏳</div>
-          <p className="text-white text-xl">Загрузка профессии...</p>
+      <div className="flex min-h-dvh items-center justify-center bg-hh-gray-50">
+        <div className="flex flex-col items-center gap-4 text-center">
+          <span className="text-5xl">⏳</span>
+          <p className="text-base font-medium text-text-secondary">Загружаем атмосферу профессии...</p>
         </div>
       </div>
     );
@@ -39,349 +113,479 @@ export default function ProfessionPage({ params }: { params: Promise<{ id: strin
 
   if (!data) {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
-        <div className="text-center">
-          <div className="text-6xl mb-4">😕</div>
-          <p className="text-white text-xl mb-4">Профессия не найдена</p>
-          <Link href="/" className="text-purple-400 hover:text-purple-300">
-            ← Вернуться на главную
-          </Link>
+      <div className="flex min-h-dvh flex-col items-center justify-center gap-6 bg-hh-gray-50 px-6 text-center">
+        <div className="text-6xl">😕</div>
+        <div>
+          <h1 className="text-2xl font-semibold text-text-primary">Мы не нашли такую профессию</h1>
+          <p className="mt-2 text-sm text-text-secondary">Попробуй выбрать другую или спроси AI ассистента на главной.</p>
         </div>
+        <Link
+          href="/"
+          className="rounded-xl bg-hh-red px-6 py-3 text-sm font-medium text-white shadow-[0_15px_30px_rgba(255,0,0,0.25)] transition hover:bg-hh-red-dark"
+        >
+          ← Вернуться на главную
+        </Link>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-900">
-      {/* Header */}
-      <div className="bg-gradient-to-r from-purple-900 to-slate-900 border-b border-white/10">
-        <div className="container mx-auto px-4 py-8">
-          <Link href="/" className="text-purple-400 hover:text-purple-300 mb-4 inline-block">
-            ← Назад к поиску
-          </Link>
-          <div className="flex items-center justify-between flex-wrap gap-4">
-            <div>
-              <h1 className="text-4xl font-bold text-white mb-2">
-                🎯 {data.profession} <span className="text-gray-400">({data.level})</span>
-              </h1>
-              <p className="text-xl text-gray-300">
-                📊 Найдено {data.vacancies?.toLocaleString() || 0} вакансий | Конкуренция: {data.competition || 'средняя'}
-              </p>
-            </div>
-            <button
-              onClick={() => setSoundPlaying(!soundPlaying)}
-              className="px-6 py-3 bg-purple-600 hover:bg-purple-700 rounded-xl text-white font-medium transition-colors"
+    <div className="relative min-h-dvh bg-hh-light">
+      <header className="relative h-[360px] overflow-hidden">
+        <div className="absolute inset-0">
+          <Image src={heroImage} alt={data.profession} fill priority sizes="100vw" className="object-cover" />
+          <div className="hh-gradient-overlay absolute inset-0" />
+        </div>
+
+        <div className="relative z-10 mx-auto flex h-full max-w-5xl flex-col justify-between px-4 py-6 text-white sm:px-6">
+          <div className="flex items-center justify-between">
+            <Link
+              href="/"
+              className="flex h-10 w-10 items-center justify-center rounded-full border border-white/40 bg-white/20 text-base font-semibold backdrop-blur-md"
+              aria-label="Назад к профессиям"
             >
-              {soundPlaying ? '🔊 Звук играет' : '🎧 Включить звук'}
+              ←
+            </Link>
+            <button
+              onClick={() => setSoundPlaying((prev) => !prev)}
+              className="flex items-center gap-2 rounded-full bg-white/15 px-4 py-2 text-sm font-medium backdrop-blur-md transition active:scale-95"
+            >
+              {soundPlaying ? '🔊 Погружаемся' : '🎧 Включить атмосферу'}
             </button>
           </div>
-        </div>
-      </div>
 
-      <div className="container mx-auto px-4 py-8">
-        {/* Moodboard Visual */}
-        <div className="mb-8 p-8 bg-slate-800/50 rounded-2xl border border-white/10">
-          <h3 className="text-2xl font-semibold text-white mb-4">📸 Визуальная атмосфера</h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {data.images?.map((img: string, i: number) => (
-              <div key={i} className="aspect-square relative rounded-xl overflow-hidden border border-white/10 bg-slate-700/30">
-                {img.startsWith('http') ? (
-                  <img
-                    src={img}
-                    alt={`Визуал ${i + 1}`}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <Image
-                    src={img}
-                    alt={`Визуал ${i + 1}`}
-                    fill
-                    className="object-cover"
-                  />
+          <div className="space-y-3">
+            {(data.level || data.company) && (
+              <span className="inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1 text-xs font-medium uppercase tracking-wide backdrop-blur-md">
+                {data.level ?? 'Уровень не указан'}
+                {data.company && (
+                  <>
+                    <span className="text-white/70">•</span>
+                    {data.company}
+                  </>
                 )}
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Schedule Timeline */}
-        <div className="mb-8 p-8 bg-slate-800/50 rounded-2xl border border-white/10">
-          <h3 className="text-2xl font-semibold text-white mb-6">📅 Твой типичный день</h3>
-          <div className="space-y-4">
-            {data.schedule?.map((item: any, i: number) => (
-              <div key={i}>
-                <div 
-                  onClick={() => setSelectedTime(selectedTime === i ? null : i)}
-                  className="p-4 bg-slate-700/50 rounded-xl border border-white/10 hover:border-purple-500 transition-all cursor-pointer"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <span className="text-3xl">{item.emoji}</span>
-                      <div>
-                        <div className="text-purple-400 font-mono font-semibold">{item.time}</div>
-                        <div className="text-white font-medium">{item.title}</div>
-                        <div className="text-gray-400 text-sm mt-1">{item.description}</div>
-                      </div>
-                    </div>
-                    <div className="text-gray-500">
-                      {selectedTime === i ? '▼' : '▶'}
-                    </div>
-                  </div>
-                </div>
-                {selectedTime === i && (
-                  <div className="mt-2 ml-16 p-4 bg-slate-600/30 rounded-lg border-l-4 border-purple-500">
-                    <p className="text-gray-300">{item.detail}</p>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Tech Stack */}
-        <div className="mb-8 p-8 bg-slate-800/50 rounded-2xl border border-white/10">
-          <h3 className="text-2xl font-semibold text-white mb-6">🛠 Твой стек</h3>
-          <div className="flex flex-wrap gap-3">
-            {data.stack?.map((tech: string) => (
-              <span key={tech} className="px-4 py-2 bg-purple-600/20 border border-purple-500/30 rounded-lg text-purple-300 font-medium hover:bg-purple-600/30 transition-colors">
-                {tech}
               </span>
-            ))}
-          </div>
-        </div>
-
-        {/* Interactive Chat */}
-        {data.dialog && (
-          <div className="mb-8 p-8 bg-slate-800/50 rounded-2xl border border-white/10">
-            <h3 className="text-2xl font-semibold text-white mb-6">💬 Диалог с командой</h3>
-            
-            <div className="space-y-4">
-              <div className="p-4 bg-slate-700/50 rounded-xl border border-white/10">
-                <p className="text-white">{data.dialog.message}</p>
-              </div>
-
-              {!dialogAnswer ? (
-                <div className="space-y-2">
-                  <p className="text-gray-400 text-sm">Выбери ответ:</p>
-                  {data.dialog.options?.map((option: string) => (
-                    <button
-                      key={option}
-                      onClick={() => setDialogAnswer(option)}
-                      className="w-full p-3 bg-slate-700/30 hover:bg-purple-600/20 border border-white/10 hover:border-purple-500/50 rounded-lg text-white text-left transition-all"
-                    >
-                      ○ {option}
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  <div className="p-4 bg-purple-600/20 border border-purple-500/30 rounded-xl">
-                    <p className="text-purple-300">Ты: {dialogAnswer}</p>
-                  </div>
-                  <div className="p-4 bg-green-600/20 border border-green-500/30 rounded-xl">
-                    <p className="text-green-300">{data.dialog.response}</p>
-                  </div>
-                  <button 
-                    onClick={() => setDialogAnswer(null)}
-                    className="text-purple-400 hover:text-purple-300 text-sm"
-                  >
-                    ↺ Попробовать другой ответ
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Benefits */}
-        <div className="mb-8 p-8 bg-slate-800/50 rounded-2xl border border-white/10">
-          <h3 className="text-2xl font-semibold text-white mb-6">💰 Твоя польза</h3>
-          <div className="grid md:grid-cols-2 gap-4">
-            {data.benefits?.map((benefit: any, i: number) => (
-              <div key={i} className="flex items-start gap-3 p-4 bg-slate-700/30 rounded-lg">
-                <span className="text-2xl">{benefit.icon}</span>
-                <p className="text-gray-300">{benefit.text}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Job Market from HH.ru */}
-        {(data.avgSalary || data.topCompanies?.length > 0) && (
-          <div className="mb-8 p-8 bg-slate-800/50 rounded-2xl border border-white/10">
-            <h3 className="text-2xl font-semibold text-white mb-6">💼 Рынок труда (данные HH.ru)</h3>
-            
-            <div className="grid md:grid-cols-2 gap-6">
-              {data.avgSalary && (
-                <div className="p-4 bg-gradient-to-br from-purple-600/20 to-pink-600/20 border border-purple-500/30 rounded-xl">
-                  <div className="text-gray-400 mb-2 text-sm">Средняя зарплата</div>
-                  <div className="text-4xl font-bold text-purple-300">
-                    {data.avgSalary.toLocaleString('ru-RU')} ₽
-                  </div>
-                  <div className="text-gray-500 text-xs mt-1">на основе реальных вакансий</div>
-                </div>
-              )}
-              
-              <div className="p-4 bg-slate-700/30 rounded-xl">
-                <div className="text-gray-400 mb-2 text-sm">Всего вакансий</div>
-                <div className="text-3xl font-bold text-white">
-                  {data.vacancies?.toLocaleString('ru-RU') || 0}
-                </div>
-                <div className="mt-2 inline-block px-3 py-1 bg-purple-600/20 border border-purple-500/30 rounded-full text-sm text-purple-300">
-                  {data.competition} конкуренция
-                </div>
-              </div>
-            </div>
-
-            {data.topCompanies && data.topCompanies.length > 0 && (
-              <div className="mt-6">
-                <div className="text-gray-400 mb-3 text-sm font-medium">Топ работодатели:</div>
-                <div className="flex flex-wrap gap-2">
-                  {data.topCompanies.map((company: string, i: number) => (
-                    <div key={i} className="px-4 py-2 bg-slate-700/50 border border-white/10 rounded-lg text-white text-sm">
-                      {company}
-                    </div>
-                  ))}
-                </div>
-              </div>
             )}
-          </div>
-        )}
+            <h1 className="text-[clamp(2rem,4vw,3rem)] font-bold leading-tight">{data.profession}</h1>
+            <p className="max-w-xl text-sm text-white/80">
+              Представь, что ты уже в команде: мы собрали расписание дня, стек, атмосферу и карьерный рост, основанные на
+              данных hh.ru и опыте специалистов.
+            </p>
 
-        {/* Career Path */}
-        <div className="mb-8 p-8 bg-slate-800/50 rounded-2xl border border-white/10">
-          <h3 className="text-2xl font-semibold text-white mb-6">📈 Карьерный путь</h3>
-          <div className="relative">
-            <div className="absolute top-8 left-0 right-0 h-1 bg-gradient-to-r from-purple-600 to-pink-600 hidden md:block"></div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 relative">
-              {data.careerPath?.map((stage: any, i: number) => (
-                <div key={i} className="text-center">
-                  <div className={`w-16 h-16 mx-auto rounded-full flex items-center justify-center mb-3 ${stage.current ? 'bg-purple-600 ring-4 ring-purple-400/30 text-2xl' : 'bg-slate-700 text-xl'}`}>
-                    {stage.current ? '👤' : ''}
-                  </div>
-                  <div className={`font-semibold mb-1 ${stage.current ? 'text-purple-400' : 'text-white'}`}>
-                    {stage.level}
-                  </div>
-                  <div className="text-gray-400 text-sm">{stage.years}</div>
-                  <div className="text-gray-500 text-sm mt-1">{stage.salary}</div>
-                </div>
-              ))}
+            <div className="flex flex-wrap gap-3 text-sm">
+              <StatsPill label="Вакансий" value={data.vacancies?.toLocaleString('ru-RU') ?? '—'} icon="📊" />
+              <StatsPill
+                label="Средняя ЗП"
+                value={data.avgSalary ? `${data.avgSalary.toLocaleString('ru-RU')} ₽` : '—'}
+                icon="💸"
+              />
+              <StatsPill label="Конкуренция" value={data.competition ?? 'Средняя'} icon="⚖️" />
             </div>
           </div>
         </div>
+      </header>
 
-        {/* Skills */}
-        <div className="mb-8 p-8 bg-slate-800/50 rounded-2xl border border-white/10">
-          <h3 className="text-2xl font-semibold text-white mb-6">🎯 Скиллы для входа</h3>
-          <div className="space-y-4">
-            {data.skills?.map((skill: any) => (
-              <div key={skill.name}>
-                <div className="flex justify-between mb-2">
-                  <span className="text-white font-medium">{skill.name}</span>
-                  <span className="text-purple-400">{skill.level}%</span>
-                </div>
-                <div className="h-3 bg-slate-700 rounded-full overflow-hidden">
-                  <div 
-                    className="h-full bg-gradient-to-r from-purple-600 to-pink-600 transition-all duration-1000"
-                    style={{ width: `${skill.level}%` }}
-                  ></div>
-                </div>
-              </div>
+      <div className="relative z-20 -mt-12 rounded-t-3xl bg-hh-light">
+        <div className="sticky top-0 z-30 -mx-4 border-b border-hh-gray-200 bg-hh-light/95 px-4 pb-2 pt-4 backdrop-blur-sm sm:-mx-6 sm:px-6">
+          <nav className="flex gap-2 overflow-x-auto">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => handleTabClick(tab.id)}
+                className={`flex shrink-0 items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+                  activeTab === tab.id
+                    ? 'bg-hh-red text-white shadow-[0_10px_20px_rgba(255,0,0,0.25)]'
+                    : 'bg-hh-gray-50 text-text-secondary hover:bg-hh-gray-100'
+                }`}
+              >
+                <span>{tab.emoji}</span>
+                {tab.label}
+              </button>
             ))}
-          </div>
+          </nav>
         </div>
 
-        {/* YouTube Videos */}
-        {data.videos && data.videos.length > 0 && (
-          <div className="mb-8 p-8 bg-slate-800/50 rounded-2xl border border-white/10">
-            <h3 className="text-2xl font-semibold text-white mb-6">
-              🎥 День в профессии (видео)
-            </h3>
-            
-            {/* Главное видео */}
-            <div className="mb-6">
-              <div className="aspect-video rounded-xl overflow-hidden border border-white/10 bg-slate-900">
-                <iframe
-                  width="100%"
-                  height="100%"
-                  src={`https://www.youtube.com/embed/${data.videos[0].videoId}`}
-                  title={data.videos[0].title}
-                  frameBorder="0"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                  allowFullScreen
-                  className="w-full h-full"
-                />
+        <main className="mx-auto flex max-w-5xl flex-col gap-8 px-4 pb-28 pt-6 sm:px-6">
+          <section id="overview" className="scroll-mt-28 space-y-6">
+            <ContentCard title="Визуальный вайб" subtitle="Погрузись в окружение" padding="p-4 sm:p-6">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {data.images?.map((image, index) => (
+                  <div key={`${image}-${index}`} className="group relative aspect-square overflow-hidden rounded-2xl bg-hh-gray-100">
+                    <Image
+                      src={image}
+                      alt={`${data.profession} mood ${index + 1}`}
+                      fill
+                      sizes="(max-width: 640px) 50vw, 25vw"
+                      className="object-cover transition-transform duration-500 group-hover:scale-105"
+                    />
+                  </div>
+                ))}
               </div>
-              <div className="mt-2 text-gray-300 text-sm">
-                {data.videos[0].title}
-              </div>
-              <div className="text-gray-500 text-xs">
-                {data.videos[0].channelTitle}
-              </div>
-            </div>
+            </ContentCard>
 
-            {/* Дополнительные видео */}
-            {data.videos.length > 1 && (
-              <div>
-                <h4 className="text-lg font-semibold text-white mb-4">Ещё видео:</h4>
-                <div className="grid md:grid-cols-3 gap-4">
-                  {data.videos.slice(1, 4).map((video: any) => (
-                    <a
-                      key={video.videoId}
-                      href={`https://www.youtube.com/watch?v=${video.videoId}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="group block bg-slate-700/30 rounded-xl overflow-hidden border border-white/10 hover:border-purple-500/50 transition-all"
-                    >
-                      <div className="relative aspect-video bg-slate-700">
-                        <img
-                          src={video.thumbnail}
-                          alt={video.title}
-                          className="w-full h-full object-cover"
-                        />
-                        <div className="absolute inset-0 flex items-center justify-center bg-black/30 group-hover:bg-black/50 transition-colors">
-                          <div className="w-12 h-12 bg-red-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
-                            <svg className="w-6 h-6 text-white ml-0.5" fill="currentColor" viewBox="0 0 24 24">
-                              <path d="M8 5v14l11-7z"/>
-                            </svg>
+            <ContentCard title="Что тебя ждёт" subtitle="Быстрый обзор" padding="p-4 sm:p-6">
+              <div className="grid gap-4 sm:grid-cols-3">
+                {data.benefits?.slice(0, 3).map((benefit, index) => (
+                  <div key={`${benefit.text}-${index}`} className="rounded-2xl border border-hh-gray-200 bg-hh-gray-50 p-4">
+                    <div className="text-2xl">{benefit.icon}</div>
+                    <p className="mt-3 text-sm text-text-secondary">{benefit.text}</p>
+                  </div>
+                ))}
+              </div>
+            </ContentCard>
+
+            {data.dialog && (
+              <ContentCard title="Диалог с коллегой" subtitle="Ответь на сообщение" padding="p-4 sm:p-6">
+                <div className="rounded-2xl border border-hh-gray-200 bg-hh-gray-50 p-4 text-sm text-text-primary">
+                  {data.dialog.message}
+                </div>
+                <div className="mt-4 space-y-2">
+                  {dialogAnswer ? (
+                    <div className="space-y-3">
+                      <div className="rounded-2xl bg-hh-blue/10 p-3 text-sm text-hh-blue">
+                        <span className="font-medium">Ты:</span> {dialogAnswer}
+                      </div>
+                      <div className="rounded-2xl border border-[#00a85433] bg-[#00a8541a] p-3 text-sm text-[#008246]">
+                        {data.dialog.response}
+                      </div>
+                      <button
+                        onClick={() => setDialogAnswer(null)}
+                        className="text-sm font-medium text-hh-blue hover:text-hh-red"
+                      >
+                        ↺ Попробовать другой ответ
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-xs uppercase tracking-wide text-text-secondary">Выбери ответ</p>
+                      {data.dialog.options?.map((option) => (
+                        <button
+                          key={option}
+                          onClick={() => setDialogAnswer(option)}
+                          className="w-full rounded-2xl border border-hh-gray-200 bg-white px-4 py-3 text-left text-sm font-medium text-text-primary transition hover:border-hh-red hover:text-hh-red"
+                        >
+                          {option}
+                        </button>
+                      ))}
+                    </>
+                  )}
+                </div>
+              </ContentCard>
+            )}
+          </section>
+
+          <section id="schedule" className="scroll-mt-28 space-y-4">
+            <ContentCard title="Твой день" subtitle="От первого кофе до релиза" padding="p-4 sm:p-6">
+              <div className="space-y-5">
+                {data.schedule?.map((item, index) => {
+                  const isOpen = selectedTime === index;
+                  return (
+                    <button key={`${item.time}-${index}`} onClick={() => setSelectedTime(isOpen ? null : index)} className="w-full text-left">
+                      <div className="flex items-start gap-4 rounded-2xl border border-hh-gray-200 bg-white px-4 py-3 transition hover:border-hh-red">
+                        <span className="text-3xl">{item.emoji}</span>
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between gap-4">
+                            <div>
+                              <p className="font-mono text-xs font-semibold uppercase tracking-wider text-text-secondary">
+                                {item.time}
+                              </p>
+                              <h3 className="mt-1 text-base font-semibold text-text-primary">{item.title}</h3>
+                            </div>
+                            <span className="text-xl text-text-secondary">{isOpen ? '▲' : '▼'}</span>
                           </div>
+                          <p className="mt-2 text-sm text-text-secondary">{item.description}</p>
+                          {isOpen && item.detail && (
+                            <p className="mt-3 rounded-2xl bg-hh-gray-50 p-3 text-sm text-text-primary">{item.detail}</p>
+                          )}
                         </div>
                       </div>
-                      <div className="p-3">
-                        <h5 className="text-white text-sm font-medium line-clamp-2">
-                          {video.title}
-                        </h5>
-                        <p className="text-gray-400 text-xs mt-1">
-                          {video.channelTitle}
-                        </p>
+                    </button>
+                  );
+                })}
+              </div>
+            </ContentCard>
+          </section>
+
+          <section id="skills" className="scroll-mt-28 space-y-4">
+            <ContentCard title="Стек и навыки" subtitle="Что стоит подтянуть" padding="p-4 sm:p-6">
+              <div className="space-y-6">
+                {data.stack && data.stack.length > 0 && (
+                  <div>
+                    <h3 className="text-sm font-semibold uppercase tracking-wide text-text-secondary">Технический стек</h3>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {data.stack.map((tech) => (
+                        <span key={tech} className="inline-flex items-center rounded-full bg-hh-gray-100 px-4 py-1.5 text-xs font-medium text-text-primary">
+                          {tech}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {data.skills && (
+                  <div className="space-y-4">
+                    {data.skills.map((skill) => (
+                      <div key={skill.name}>
+                        <div className="flex items-center justify-between text-sm font-medium text-text-primary">
+                          <span>{skill.name}</span>
+                          <span className="text-hh-red">{skill.level}%</span>
+                        </div>
+                        <div className="mt-2 h-2 rounded-full bg-hh-gray-100">
+                          <div
+                            className="h-full rounded-full bg-hh-red transition-all duration-700"
+                            style={{ width: `${skill.level}%` }}
+                          />
+                        </div>
                       </div>
-                    </a>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </ContentCard>
+          </section>
+
+          <section id="career" className="scroll-mt-28 space-y-4">
+            <ContentCard title="Карьерный путь" subtitle="Как будет развиваться твой вайб" padding="p-4 sm:p-6">
+              <div className="relative">
+                <div className="absolute left-4 top-10 bottom-10 w-px bg-hh-gray-200 md:left-1/2 md:-translate-x-1/2" />
+                <div className="flex flex-col gap-6 md:grid md:grid-cols-2">
+                  {data.careerPath?.map((stage, index) => (
+                    <div key={`${stage.level}-${index}`} className="relative pl-12 md:pl-0">
+                      <div className="absolute left-0 top-3 flex h-8 w-8 items-center justify-center rounded-full border-4 border-white bg-hh-red text-sm font-semibold text-white md:left-1/2 md:-translate-x-1/2">
+                        {index + 1}
+                      </div>
+                      <div className="mt-6 rounded-2xl border border-hh-gray-200 bg-white p-4 shadow-sm">
+                        <p className="text-xs uppercase tracking-wide text-hh-red">{stage.years}</p>
+                        <h3 className="mt-2 text-base font-semibold text-text-primary">{stage.level}</h3>
+                        <p className="mt-2 text-sm text-text-secondary">{stage.salary}</p>
+                      </div>
+                    </div>
                   ))}
                 </div>
               </div>
+            </ContentCard>
+
+            {(data.avgSalary || data.topCompanies?.length) && (
+              <ContentCard title="Рынок труда" subtitle="Данные hh.ru" padding="p-4 sm:p-6">
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <StatsTile
+                    label="Вакансий"
+                    value={data.vacancies?.toLocaleString('ru-RU') ?? '—'}
+                    description="по данным API hh.ru"
+                    tone="default"
+                  />
+                  <StatsTile
+                    label="Средняя зарплата"
+                    value={data.avgSalary ? `${data.avgSalary.toLocaleString('ru-RU')} ₽` : '—'}
+                    description="до вычета налогов"
+                    tone="success"
+                  />
+                  <StatsTile
+                    label="Конкуренция"
+                    value={data.competition ?? 'Средняя'}
+                    description="по уровню откликов"
+                    tone="warning"
+                  />
+                </div>
+                {data.topCompanies && data.topCompanies.length > 0 && (
+                  <div className="mt-5">
+                    <h4 className="text-sm font-semibold uppercase tracking-wide text-text-secondary">Топ работодателей</h4>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {data.topCompanies.map((company) => (
+                        <span
+                          key={company}
+                          className="rounded-full border border-hh-gray-200 bg-white px-3 py-1 text-xs font-medium text-text-primary"
+                        >
+                          {company}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </ContentCard>
             )}
-          </div>
-        )}
+          </section>
 
-        {/* CTA Buttons */}
-        <div className="flex gap-4 justify-center flex-wrap">
-          <Link 
+          {currentVideo && data.videos && data.videos.length > 0 && (
+            <ContentCard title="Видео из профессии" subtitle="Погрузись в атмосферу специалиста" padding="p-4">
+              <div className="space-y-4">
+                <button
+                  type="button"
+                  onClick={() => openVideo(activeVideo)}
+                  className="relative flex w-full overflow-hidden rounded-3xl bg-black text-left shadow-[0_20px_40px_rgba(0,0,0,0.25)]"
+                >
+                  <div className="relative w-full overflow-hidden aspect-[9/16]">
+                    <img src={currentVideo.thumbnail} alt={currentVideo.title} className="absolute inset-0 h-full w-full object-cover opacity-70" />
+                    <div className="absolute inset-0 bg-gradient-to-b from-black/50 via-black/20 to-black/70" />
+                    <div className="absolute inset-x-4 bottom-4 flex flex-col gap-2 text-white">
+                      <span className="inline-flex w-fit items-center gap-2 rounded-full bg-white/20 px-3 py-1 text-xs font-semibold">
+                        🎧 {vibeLabels[activeVideo % vibeLabels.length]}
+                      </span>
+                      <h3 className="text-base font-semibold leading-tight">{currentVideo.title}</h3>
+                      <span className="text-xs text-white/70">{currentVideo.channelTitle}</span>
+                    </div>
+                    <span className="absolute left-1/2 top-1/2 flex h-14 w-14 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-white text-2xl text-hh-red">
+                      ▶
+                    </span>
+                  </div>
+                </button>
+
+                <div>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary">Выбери настроение</p>
+                    <span className="text-xs text-text-secondary">{activeVideo + 1} / {data.videos.length}</span>
+                  </div>
+                  <div className="mt-4 flex gap-3 overflow-x-auto pb-1">
+                    {data.videos.map((video, index) => {
+                      const isActive = index === activeVideo;
+                      return (
+                        <button
+                          key={video.videoId}
+                          type="button"
+                          onClick={() => setActiveVideo(index)}
+                          className={`flex w-48 flex-col overflow-hidden rounded-2xl border bg-white text-left transition ${
+                            isActive ? 'border-hh-red shadow-[0_15px_30px_rgba(255,0,0,0.2)]' : 'border-hh-gray-200'
+                          }`}
+                        >
+                          <div className="relative aspect-[9/16] w-full overflow-hidden">
+                            <img src={video.thumbnail} alt={video.title} className="h-full w-full object-cover" />
+                            <span className="absolute left-2 top-2 rounded-full bg-black/65 px-2 py-1 text-[11px] font-medium text-white">
+                              {vibeLabels[index % vibeLabels.length]}
+                            </span>
+                            {isActive && (
+                              <span className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-hh-red text-xs font-semibold text-white">
+                                ▶
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex flex-1 flex-col gap-1 px-3 py-3">
+                            <p className="line-clamp-2 text-sm font-semibold text-text-primary">{video.title}</p>
+                            <span className="text-xs text-text-secondary">{video.channelTitle}</span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </ContentCard>
+          )}
+
+          <footer className="flex flex-col items-center gap-3 pb-10 text-center text-xs text-text-secondary">
+            <div className="flex flex-wrap justify-center gap-3">
+              <Link
+                href="/"
+                className="rounded-full border border-hh-gray-200 px-4 py-2 text-sm font-medium text-text-primary transition hover:border-hh-red hover:text-hh-red"
+              >
+                ← Выбрать другую профессию
+              </Link>
+              <button className="rounded-full bg-hh-red px-6 py-2 text-sm font-medium text-white shadow-[0_10px_25px_rgba(255,0,0,0.25)] transition hover:bg-hh-red-dark">
+                Скачать PDF карточку
+              </button>
+            </div>
+            {data.generatedAt && <p>Сгенерировано: {new Date(data.generatedAt).toLocaleString('ru-RU')}</p>}
+          </footer>
+        </main>
+      </div>
+
+      <div className="fixed inset-x-0 bottom-0 z-40 bg-white/95 px-4 py-4 shadow-[0_-10px_30px_rgba(0,0,0,0.08)] backdrop-blur-sm safe-area-inset-bottom sm:hidden">
+        <div className="mx-auto flex max-w-5xl items-center gap-3">
+          <div className="flex-1">
+            <p className="text-xs uppercase tracking-wide text-text-secondary">Готов попробовать?</p>
+            <p className="text-sm font-semibold text-text-primary">Спроси у AI о похожих профессиях</p>
+          </div>
+          <Link
             href="/"
-            className="px-8 py-4 bg-slate-700 hover:bg-slate-600 text-white rounded-xl font-medium transition-colors"
+            className="flex h-12 w-12 items-center justify-center rounded-full bg-hh-red text-lg text-white"
+            aria-label="Назад на главную"
           >
-            Попробовать другую профессию
+            💬
           </Link>
-          <button className="px-8 py-4 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white rounded-xl font-medium transition-all">
-            Скачать PDF карточку
-          </button>
         </div>
+      </div>
+      {isVideoOverlayOpen && currentVideo && (
+        <VideoOverlay video={currentVideo} onClose={closeVideo} />
+      )}
+    </div>
+  );
+}
 
-        {/* Generation Info */}
-        {data.generatedAt && (
-          <div className="mt-8 text-center text-gray-500 text-sm">
-            Сгенерировано: {new Date(data.generatedAt).toLocaleString('ru-RU')}
-          </div>
-        )}
+function ContentCard({ title, subtitle, padding, children }: { title: string; subtitle?: string; padding?: string; children: ReactNode }) {
+  return (
+    <section className={`rounded-3xl border border-hh-gray-200 bg-white shadow-sm ${padding ?? 'p-6'}`}>
+      <header className="mb-4 flex flex-col gap-1">
+        <h2 className="text-lg font-semibold text-text-primary sm:text-xl">{title}</h2>
+        {subtitle && <p className="text-sm text-text-secondary">{subtitle}</p>}
+      </header>
+      <div className="space-y-4">{children}</div>
+    </section>
+  );
+}
+
+function StatsPill({ label, value, icon }: { label: string; value: string; icon: string }) {
+  return (
+    <span className="inline-flex items-center gap-2 rounded-full bg-white/20 px-4 py-2 text-xs font-medium backdrop-blur-md">
+      <span>{icon}</span>
+      <span>{label}:</span>
+      <span className="font-semibold">{value}</span>
+    </span>
+  );
+}
+
+function StatsTile({
+  label,
+  value,
+  description,
+  tone,
+}: {
+  label: string;
+  value: string;
+  description: string;
+  tone: 'success' | 'warning' | 'default';
+}) {
+  const toneStyles = {
+    success: 'border-[#00a85433] text-[#008246] bg-[#00a8541a]',
+    warning: 'border-[#ffa50033] text-[#c67600] bg-[#ffa5001a]',
+    default: 'border-hh-gray-200 text-text-primary bg-hh-gray-50',
+  }[tone];
+
+  return (
+    <div className="rounded-2xl border border-hh-gray-200 bg-white p-4 text-sm shadow-sm">
+      <p className="text-xs uppercase tracking-wide text-text-secondary">{label}</p>
+      <div className={`mt-2 inline-flex items-center gap-2 rounded-full px-3 py-1 text-sm font-semibold ${toneStyles}`}>
+        {value}
+      </div>
+      <p className="mt-2 text-xs text-text-secondary">{description}</p>
+    </div>
+  );
+}
+
+function VideoOverlay({ video, onClose }: { video: { videoId: string; title: string; channelTitle: string }; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col bg-black">
+      <div className="flex items-center justify-between px-4 pt-4 pb-2 text-white safe-area-inset-top">
+        <button
+          onClick={onClose}
+          aria-label="Закрыть видео"
+          className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-2xl"
+        >
+          ×
+        </button>
+        <div className="flex flex-col text-right">
+          <span className="text-xs text-white/60">Сейчас смотришь</span>
+          <span className="text-sm font-semibold">{video.title}</span>
+        </div>
+      </div>
+      <div className="flex flex-1 justify-center pb-6">
+        <div className="relative w-full max-w-sm aspect-[9/16]">
+          <iframe
+            src={`https://www.youtube.com/embed/${video.videoId}?autoplay=1`}
+            allow="autoplay; encrypted-media"
+            allowFullScreen
+            className="absolute inset-0 h-full w-full rounded-2xl"
+            title={video.title}
+          />
+        </div>
       </div>
     </div>
   );
