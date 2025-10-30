@@ -438,8 +438,8 @@ export default function ChatInterface({ onClose }: { onClose?: () => void }) {
             disabled={isTyping || isProcessing}
             className={`flex h-12 w-12 items-center justify-center rounded-full transition ${
               isRecording 
-                ? 'bg-red-500 text-white animate-pulse' 
-                : 'bg-hh-gray-200 text-text-secondary hover:bg-hh-gray-300'
+                ? 'bg-hh-red-dark text-white animate-pulse' 
+                : 'bg-hh-red text-white hover:bg-hh-red-dark'
             } disabled:opacity-50`}
             aria-label={isRecording ? "Остановить запись" : "Начать голосовой ввод"}
           >
