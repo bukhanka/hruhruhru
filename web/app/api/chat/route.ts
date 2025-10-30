@@ -914,16 +914,17 @@ async function generateLevelQuestion(profession: string): Promise<{ content: str
   
   const prompt = `Ты AI-ассистент для карьерного консультирования. Для профессии "${profession}" создай вопрос об уровне опыта с релевантными вариантами ответов.
 
-Важно:
-- Для IT-профессий: Студент, Джун, Мидл, Сеньор
+ВАЖНО:
+- ПЕРВЫМ вариантом ВСЕГДА должна быть кнопка "Без опыта" (большинство пользователей без опыта)
+- После этого для IT-профессий: Джун, Мидл, Сеньор
 - Для рабочих профессий: Начинающий, Опытный, Мастер
 - Для творческих профессий: Начинающий, С опытом, Профессионал
-- Для других: адаптируй под профессию
+- Для других: адаптируй под профессию, но "Без опыта" ВСЕГДА первая
 
 Формат JSON:
 {
   "content": "Вопрос об опыте",
-  "buttons": ["Вариант 1", "Вариант 2", "Вариант 3", "Вариант 4"]
+  "buttons": ["Без опыта", "Вариант 2", "Вариант 3", "Вариант 4"]
 }
 
 Вопрос должен быть кратким и естественным.`;
@@ -939,15 +940,31 @@ async function generateLevelQuestion(profession: string): Promise<{ content: str
     });
 
     const result = JSON.parse(response.text || '{}');
+    // Убеждаемся, что "Без опыта" всегда первая
+    const buttons = result.buttons || ['Без опыта', 'Студент', 'Джун (Junior)', 'Мидл (Middle)', 'Сеньор (Senior)'];
+    const hasNoExperience = buttons.findIndex((b: string) => b.toLowerCase().includes('без опыта'));
+    
+    let normalizedButtons: string[];
+    if (hasNoExperience === -1) {
+      // Если кнопки "Без опыта" нет вообще - добавляем первой
+      normalizedButtons = ['Без опыта', ...buttons];
+    } else if (hasNoExperience === 0) {
+      // Если уже первая - оставляем как есть
+      normalizedButtons = buttons;
+    } else {
+      // Если есть, но не первая - перемещаем в начало
+      normalizedButtons = [buttons[hasNoExperience], ...buttons.filter((_: string, i: number) => i !== hasNoExperience)];
+    }
+    
     return {
       content: result.content || 'Какой у тебя уровень опыта?',
-      buttons: result.buttons || ['Студент', 'Джун (Junior)', 'Мидл (Middle)', 'Сеньор (Senior)'],
+      buttons: normalizedButtons,
     };
   } catch (error: any) {
     console.error('Ошибка генерации вопроса об уровне:', error);
     return {
       content: 'Какой у тебя уровень опыта?',
-      buttons: ['Начинающий', 'С опытом', 'Опытный', 'Мастер'],
+      buttons: ['Без опыта', 'Начинающий', 'С опытом', 'Опытный', 'Мастер'],
     };
   }
 }
@@ -1126,12 +1143,16 @@ async function generateSpecializationQuestion(profession: string): Promise<{ con
 // Учитываем как полный текст кнопки, так и частичные совпадения
 function mapLevelAnswer(answer: string): 'junior' | 'middle' | 'senior' | 'student' {
   const answerLower = answer.toLowerCase();
-  // Проверяем полные совпадения с кнопками
+  // Проверяем "Без опыта" первым, так как это наиболее частый случай
+  if (answerLower === 'без опыта' || answerLower.includes('без опыта') || answerLower.includes('без опыта работы')) return 'student';
   if (answerLower === 'студент' || answerLower.includes('студент')) return 'student';
   if (answerLower === 'джун (junior)' || answerLower.includes('джун') || answerLower.includes('junior')) return 'junior';
   if (answerLower === 'мидл (middle)' || answerLower.includes('мидл') || answerLower.includes('middle')) return 'middle';
   if (answerLower === 'сеньор (senior)' || answerLower.includes('сеньор') || answerLower.includes('senior')) return 'senior';
-  return 'middle'; // По умолчанию
+  if (answerLower === 'начинающий' || answerLower.includes('начинающий')) return 'student';
+  if (answerLower === 'с опытом' || answerLower.includes('опыт')) return 'middle';
+  if (answerLower === 'профессионал' || answerLower.includes('мастер')) return 'senior';
+  return 'student'; // По умолчанию для пользователей без опыта
 }
 
 function mapWorkFormatAnswer(answer: string): 'office' | 'remote' | 'hybrid' | 'any' {
