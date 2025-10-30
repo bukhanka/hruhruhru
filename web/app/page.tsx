@@ -319,6 +319,19 @@ export default function Home() {
               );
             }
             
+            if (item.label === 'Профессии') {
+              return (
+                <Link
+                  key={item.label}
+                  href="/professions"
+                  className={className}
+                >
+                  <span className="text-lg">{item.icon}</span>
+                  {item.label}
+                </Link>
+              );
+            }
+            
             return (
               <button
                 key={item.label}

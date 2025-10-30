@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { useChatStore } from '@/lib/chat-store';
 import { useAuth } from '@/lib/auth-context';
 import { Message } from '@/types/chat';
@@ -46,16 +46,8 @@ export default function ChatInterface({ onClose }: { onClose?: () => void }) {
     scrollToBottom();
   }, [messages, isTyping]);
 
-  // Автоматически загружаем приветствие при первом открытии чата
-  useEffect(() => {
-    // Загружаем приветствие только если нет сообщений и еще не загружали
-    if (messages.length === 0 && !isTyping && !greetingLoadedRef.current) {
-      greetingLoadedRef.current = true;
-      loadGreeting();
-    }
-  }, [messages.length, isTyping]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const loadGreeting = async () => {
+  // Функция загрузки приветствия
+  const loadGreeting = useCallback(async () => {
     const startTime = Date.now();
     console.log('[Chat] Загрузка приветствия...');
     setTyping(true);
@@ -101,7 +93,38 @@ export default function ChatInterface({ onClose }: { onClose?: () => void }) {
     } finally {
       setTyping(false);
     }
-  };
+  }, [setTyping, setPersona, setConversationStage, addMessage]);
+
+  // Автоматически загружаем приветствие при первом открытии чата
+  // Используем useLayoutEffect для синхронной проверки перед отрисовкой
+  useLayoutEffect(() => {
+    // Проверяем флаг загрузки атомарно - если уже загружали, выходим сразу
+    if (greetingLoadedRef.current) {
+      return;
+    }
+    
+    // Используем небольшую задержку, чтобы дать время на загрузку из localStorage при setUserId
+    const timer = setTimeout(() => {
+      // Повторно проверяем флаг внутри таймера, чтобы предотвратить двойную загрузку
+      if (greetingLoadedRef.current) {
+        return;
+      }
+      
+      // Проверяем наличие сообщений и состояние загрузки
+      // Используем актуальные значения из store через функцию getState
+      const currentState = useChatStore.getState();
+      const shouldLoadGreeting = currentState.messages.length === 0 && !currentState.isTyping;
+      
+      if (shouldLoadGreeting) {
+        // Устанавливаем флаг ДО вызова loadGreeting, чтобы предотвратить повторную загрузку
+        greetingLoadedRef.current = true;
+        loadGreeting();
+      }
+    }, 150);
+    
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Выполняется только один раз при монтировании
 
   const sendMessage = async (text: string) => {
     if (!text.trim()) return;

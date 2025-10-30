@@ -29,6 +29,7 @@ export async function GET() {
             company: data.company,
             vacancies: data.vacancies,
             competition: data.competition,
+            location: data.location,
             image: data.images?.[0] || null,
           };
         })
