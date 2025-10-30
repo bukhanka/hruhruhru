@@ -627,11 +627,11 @@ export async function POST(request: NextRequest) {
             professionForClarification,
             level,
             company,
-            undefined,
-            undefined,
-            persona.companySize,
-            persona.location,
-            persona.specialization
+            {
+              companySize: persona.companySize,
+              location: persona.location,
+              specialization: persona.specialization
+            }
           );
           
           responseMessage = {

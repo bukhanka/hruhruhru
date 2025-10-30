@@ -45,7 +45,7 @@ echo "📥 Setting up repository..."
 if [ -d "$APP_DIR" ]; then
     cd $APP_DIR
     git fetch origin
-    git reset --hard origin/main
+    git reset --hard origin/master
 else
     mkdir -p $APP_DIR
     cd $APP_DIR

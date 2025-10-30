@@ -487,7 +487,7 @@ async function generateOneProfession(
     ]);
     
     // 5. Генерация звуков (если указан флаг --with-audio)
-    let audioData = null;
+    let audioData: any = null;
     if (WITH_AUDIO) {
       audioData = await generateAudio(slug, data.schedule);
       

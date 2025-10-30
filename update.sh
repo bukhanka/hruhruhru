@@ -8,7 +8,7 @@ APP_DIR="/var/www/hhhack"
 echo "🔄 Updating application..."
 
 cd $APP_DIR
-git pull origin main
+git pull origin master
 
 cd $APP_DIR/web
 npm ci

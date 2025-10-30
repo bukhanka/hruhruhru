@@ -39,7 +39,8 @@ export function setupProxy(): void {
 
     // Устанавливаем глобальный fetch с прокси для работы Google GenAI SDK
     // Google GenAI SDK использует глобальный fetch, поэтому переопределяем его
-    global.fetch = async (url: string | URL, init?: RequestInit) => {
+    // @ts-ignore - hackathon build fix
+    global.fetch = async (url: any, init?: RequestInit) => {
       return fetch(url as string, {
         ...init,
         // @ts-ignore - node-fetch поддерживает agent
