@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, use, type ReactNode } from 'react';
+import { useState, useEffect, useMemo, use, useRef, type ReactNode } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import TimelineAudioPlayer from '@/components/TimelineAudioPlayer';
@@ -8,6 +8,213 @@ import VoiceChat from '@/components/VoiceChat';
 import CareerTreeComponent from '@/components/CareerTree';
 import { CareerTree } from '@/types/profession';
 import { useAuth } from '@/lib/auth-context';
+
+// Компонент горизонтальной карусели комикса
+function ComicCarousel({ 
+  comicPanels, 
+  schedule, 
+  slug 
+}: { 
+  comicPanels: string[]; 
+  schedule: Array<{ time: string; title: string; emoji?: string }>; 
+  slug: string;
+}) {
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [startX, setStartX] = useState<number | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const carouselRef = useRef<HTMLDivElement>(null);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    setStartX(e.touches[0].clientX);
+    setIsDragging(true);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!isDragging || startX === null) return;
+    e.preventDefault();
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (!isDragging || startX === null) return;
+    
+    const endX = e.changedTouches[0].clientX;
+    const diff = startX - endX;
+    const threshold = 50; // Минимальное расстояние для свайпа
+
+    if (Math.abs(diff) > threshold) {
+      if (diff > 0 && currentIndex < comicPanels.length - 1) {
+        // Свайп влево - следующий слайд
+        setCurrentIndex(currentIndex + 1);
+      } else if (diff < 0 && currentIndex > 0) {
+        // Свайп вправо - предыдущий слайд
+        setCurrentIndex(currentIndex - 1);
+      }
+    }
+
+    setIsDragging(false);
+    setStartX(null);
+  };
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    setStartX(e.clientX);
+    setIsDragging(true);
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging || startX === null) return;
+    e.preventDefault();
+  };
+
+  const handleMouseUp = (e: React.MouseEvent) => {
+    if (!isDragging || startX === null) return;
+    
+    const endX = e.clientX;
+    const diff = startX - endX;
+    const threshold = 50;
+
+    if (Math.abs(diff) > threshold) {
+      if (diff > 0 && currentIndex < comicPanels.length - 1) {
+        setCurrentIndex(currentIndex + 1);
+      } else if (diff < 0 && currentIndex > 0) {
+        setCurrentIndex(currentIndex - 1);
+      }
+    }
+
+    setIsDragging(false);
+    setStartX(null);
+  };
+
+  const goToSlide = (index: number) => {
+    setCurrentIndex(index);
+  };
+
+  return (
+    <div className="w-full">
+      <div className="mb-4 flex items-center justify-between">
+        <div>
+          <h3 className="text-base font-semibold text-text-primary">Живой День в Комиксе</h3>
+          <p className="mt-1 text-xs text-text-secondary">
+            Панель {currentIndex + 1} из {comicPanels.length}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {/* Индикаторы */}
+          <div className="flex items-center gap-1.5">
+            {comicPanels.map((_, index) => (
+              <button
+                key={index}
+                onClick={() => goToSlide(index)}
+                className={`h-2 rounded-full transition-all ${
+                  index === currentIndex
+                    ? 'w-6 bg-hh-red'
+                    : 'w-2 bg-hh-gray-300 hover:bg-hh-gray-400'
+                }`}
+                aria-label={`Перейти к панели ${index + 1}`}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Карусель */}
+      <div 
+        ref={carouselRef}
+        className="relative overflow-hidden rounded-2xl border border-hh-gray-200 bg-white"
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={() => {
+          setIsDragging(false);
+          setStartX(null);
+        }}
+      >
+        {/* Контейнер панелей */}
+        <div
+          className="flex transition-transform duration-300 ease-out"
+          style={{
+            transform: `translateX(-${currentIndex * 100}%)`,
+          }}
+        >
+          {comicPanels.map((panelUrl, index) => {
+            const scheduleItem = schedule[index];
+            return (
+              <div
+                key={`comic-panel-${index}`}
+                className="min-w-full flex-shrink-0"
+              >
+                {/* Заголовок панели */}
+                {scheduleItem && (
+                  <div className="border-b border-hh-gray-100 bg-hh-gray-50 px-4 py-3">
+                    <div className="flex items-center gap-3">
+                      <span className="text-2xl">{scheduleItem.emoji}</span>
+                      <div className="flex-1">
+                        <p className="font-mono text-xs font-semibold uppercase tracking-wider text-text-secondary">
+                          {scheduleItem.time}
+                        </p>
+                        <h4 className="mt-0.5 text-sm font-semibold text-text-primary">
+                          {scheduleItem.title}
+                        </h4>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {/* Изображение панели */}
+                <div className="relative aspect-video w-full overflow-hidden bg-hh-gray-50">
+                  <Image
+                    src={panelUrl}
+                    alt={scheduleItem ? `Комикс: ${scheduleItem.title}` : `Панель комикса ${index + 1}`}
+                    fill
+                    className="object-cover"
+                    sizes="(max-width: 768px) 100vw, (max-width: 1200px) 90vw, 80vw"
+                    priority={index === currentIndex}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Стрелки навигации */}
+        {comicPanels.length > 1 && (
+          <>
+            {currentIndex > 0 && (
+              <button
+                onClick={() => setCurrentIndex(currentIndex - 1)}
+                className="absolute left-4 top-1/2 -translate-y-1/2 rounded-full bg-white/90 p-2 shadow-lg transition hover:bg-white"
+                aria-label="Предыдущая панель"
+              >
+                <svg className="h-6 w-6 text-text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
+            )}
+            {currentIndex < comicPanels.length - 1 && (
+              <button
+                onClick={() => setCurrentIndex(currentIndex + 1)}
+                className="absolute right-4 top-1/2 -translate-y-1/2 rounded-full bg-white/90 p-2 shadow-lg transition hover:bg-white"
+                aria-label="Следующая панель"
+              >
+                <svg className="h-6 w-6 text-text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Подсказка для свайпа */}
+      {comicPanels.length > 1 && (
+        <p className="mt-2 text-center text-xs text-text-secondary">
+          👆 Проведите пальцем или мышью для навигации
+        </p>
+      )}
+    </div>
+  );
+}
 
 const tabs = [
   { id: 'overview', label: 'Обзор', emoji: '👀' },
@@ -28,6 +235,7 @@ type ProfessionData = {
     careerPath?: string;
   };
   images?: string[];
+  comicStrip?: string[]; // Панели комикса "Живой День в Комиксе"
   benefits?: { icon: string; text: string }[];
   dialog?: { message: string; options?: string[]; response: string };
   schedule?: { time: string; title: string; description: string; detail?: string; emoji?: string; soundId?: string }[];
@@ -363,50 +571,65 @@ export default function ProfessionPage({ params }: { params: Promise<{ id: strin
           </section>
 
           <section id="schedule" className="scroll-mt-28 space-y-4">
-            <ContentCard title={data.displayLabels?.schedule || "Твой день"} subtitle="От первого кофе до релиза" padding="p-4 sm:p-6">
-              <div className="space-y-5">
-                {data.schedule?.map((item, index) => {
-                  const isOpen = selectedTime === index;
-                  return (
-                    <div key={`${item.time}-${index}`} className="w-full">
-                      <div className="flex items-start gap-4 rounded-2xl border border-hh-gray-200 bg-white px-4 py-3 transition hover:border-hh-red">
-                        <span className="text-3xl">{item.emoji}</span>
-                        <div className="flex-1">
-                          <div className="flex items-center justify-between gap-4">
-                            <button 
-                              onClick={() => setSelectedTime(isOpen ? null : index)} 
-                              className="flex-1 text-left"
-                            >
-                              <p className="font-mono text-xs font-semibold uppercase tracking-wider text-text-secondary">
-                                {item.time}
-                              </p>
-                              <h3 className="mt-1 text-base font-semibold text-text-primary">{item.title}</h3>
-                            </button>
-                            <div className="flex items-center gap-2">
-                              {/* Аудио плеер для этого этапа дня */}
-                              {item.soundId && (
-                                <TimelineAudioPlayer 
-                                  slug={id} 
-                                  soundId={item.soundId}
-                                />
-                              )}
-                              <button
-                                onClick={() => setSelectedTime(isOpen ? null : index)}
-                                className="text-xl text-text-secondary hover:text-hh-red"
+            <ContentCard 
+              title={data.displayLabels?.schedule || "График работы"} 
+              padding="p-4 sm:p-6"
+            >
+              <div className="space-y-6">
+                {/* Блок комикса с горизонтальной каруселью */}
+                {data.comicStrip && data.comicStrip.length > 0 && (
+                  <ComicCarousel 
+                    comicPanels={data.comicStrip} 
+                    schedule={data.schedule || []}
+                    slug={id}
+                  />
+                )}
+
+                {/* График работы */}
+                <div className="space-y-5">
+                  {data.schedule?.map((item, index) => {
+                    const isOpen = selectedTime === index;
+                    return (
+                      <div key={`${item.time}-${index}`} className="w-full">
+                        <div className="flex items-start gap-4 rounded-2xl border border-hh-gray-200 bg-white px-4 py-3 transition hover:border-hh-red">
+                          <span className="text-3xl">{item.emoji}</span>
+                          <div className="flex-1">
+                            <div className="flex items-center justify-between gap-4">
+                              <button 
+                                onClick={() => setSelectedTime(isOpen ? null : index)} 
+                                className="flex-1 text-left"
                               >
-                                {isOpen ? '▲' : '▼'}
+                                <p className="font-mono text-xs font-semibold uppercase tracking-wider text-text-secondary">
+                                  {item.time}
+                                </p>
+                                <h3 className="mt-1 text-base font-semibold text-text-primary">{item.title}</h3>
                               </button>
+                              <div className="flex items-center gap-2">
+                                {/* Аудио плеер для этого этапа дня */}
+                                {item.soundId && (
+                                  <TimelineAudioPlayer 
+                                    slug={id} 
+                                    soundId={item.soundId}
+                                  />
+                                )}
+                                <button
+                                  onClick={() => setSelectedTime(isOpen ? null : index)}
+                                  className="text-xl text-text-secondary hover:text-hh-red"
+                                >
+                                  {isOpen ? '▲' : '▼'}
+                                </button>
+                              </div>
                             </div>
+                            <p className="mt-2 text-sm text-text-secondary">{item.description}</p>
+                            {isOpen && item.detail && (
+                              <p className="mt-3 rounded-2xl bg-hh-gray-50 p-3 text-sm text-text-primary">{item.detail}</p>
+                            )}
                           </div>
-                          <p className="mt-2 text-sm text-text-secondary">{item.description}</p>
-                          {isOpen && item.detail && (
-                            <p className="mt-3 rounded-2xl bg-hh-gray-50 p-3 text-sm text-text-primary">{item.detail}</p>
-                          )}
                         </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
             </ContentCard>
           </section>

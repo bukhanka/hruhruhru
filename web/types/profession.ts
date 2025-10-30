@@ -93,6 +93,7 @@ export interface ProfessionData {
   videos?: Video[];
   slug: string;
   images: string[];
+  comicStrip?: string[]; // Панели комикса "Живой День в Комиксе" (16:9 формат)
   generatedAt: string;
   isIT?: boolean;
   // Новые параметры для контекстной генерации

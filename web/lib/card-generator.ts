@@ -599,6 +599,168 @@ async function generateProfessionImageDetails(
   }
 }
 
+// Генерация комикса "Живой День в Комиксе" с Gemini 2.5 Flash Image Generation
+export async function generateComicStrip(
+  profession: string,
+  slug: string,
+  schedule: Array<{ time: string; title: string; description: string; detail?: string; emoji?: string }>,
+  onProgress?: (message: string, progress: number) => void,
+  professionDescription?: string,
+  companySize?: 'startup' | 'medium' | 'large' | 'any',
+  location?: 'moscow' | 'spb' | 'other' | 'remote',
+  specialization?: string
+): Promise<string[]> {
+  if (onProgress) onProgress('Генерирую комикс рабочего дня...', 40);
+  
+  const ai = getAIClient();
+  const comicImages: string[] = [];
+  
+  // Контекстные дополнения для промптов комикса
+  const companySizeContext = companySize ? (() => {
+    switch(companySize) {
+      case 'startup': return 'стартап, небольшая команда, неформальная атмосфера';
+      case 'medium': return 'средняя компания, структурированные процессы';
+      case 'large': return 'крупная корпорация, много встреч и координации';
+      default: return '';
+    }
+  })() : '';
+
+  const locationContext = location ? (() => {
+    switch(location) {
+      case 'remote': return 'удаленная работа из дома, онлайн встречи';
+      case 'moscow': return 'Москва';
+      case 'spb': return 'Санкт-Петербург';
+      default: return '';
+    }
+  })() : '';
+
+  const baseContext = [companySizeContext, locationContext].filter(Boolean).join(', ');
+  
+  // Генерируем изображение для каждого события из schedule
+  for (let i = 0; i < schedule.length; i++) {
+    const event = schedule[i];
+    const eventNumber = i + 1;
+    
+    if (onProgress) {
+      onProgress(`Генерирую панель комикса ${eventNumber}/${schedule.length}: ${event.title}...`, 40 + (i / schedule.length) * 15);
+    }
+    
+    try {
+      const imagePath = await withRetry(async () => {
+        // Создаем промпт для панели комикса
+        const comicPrompt = `Создай панель комикса в стиле графического романа для профессии "${profession}".
+        
+Время: ${event.time}
+Событие: ${event.title} ${event.emoji || ''}
+Описание: ${event.description}
+${event.detail ? `Детали: ${event.detail}` : ''}
+${baseContext ? `Контекст: ${baseContext}` : ''}
+
+Требования к панели комикса:
+- Стиль: современный графический роман, реалистичный но стилизованный, яркие цвета
+- Формат: горизонтальная панель комикса (16:9)
+- Содержание: покажи момент рабочего дня "${event.title}" для профессии "${profession}"
+- Включи визуальные элементы: рабочее место, инструменты, коллеги или клиенты если уместно
+- Эмоции: передай атмосферу этого момента рабочего дня
+- Текст: можешь добавить короткие подписи или реплики в стиле комикса (по желанию)
+- Стиль комикса: четкие линии, яркие цвета, профессиональная визуализация рабочего процесса`;
+
+        logger.apiCall('GoogleAI', 'generateComicStrip', { profession, event: event.title, index: i });
+        
+        // Используем Gemini 2.5 Flash Image Generation через generateContent
+        // Согласно документации: https://ai.google.dev/gemini-api/docs/image-generation
+        const response = await ai.models.generateContent({
+          model: 'gemini-2.5-flash-image',
+          contents: comicPrompt,
+          config: {
+            imageConfig: {
+              aspectRatio: '16:9', // Формат комикса
+            },
+          },
+        });
+
+        // Извлекаем изображение из ответа
+        // Согласно документации, изображение возвращается в inlineData внутри parts
+        let imageData: string | null = null;
+
+        // Пробуем получить изображение из candidates[0].content.parts
+        const candidates = response.candidates || [];
+        if (candidates.length > 0) {
+          const content = candidates[0].content;
+          if (content && content.parts) {
+            for (const part of content.parts) {
+              // Проверяем разные возможные структуры ответа
+              if ((part as any).inlineData && (part as any).inlineData.data) {
+                imageData = (part as any).inlineData.data;
+                break;
+              }
+              if ((part as any).image && (part as any).image.data) {
+                imageData = (part as any).image.data;
+                break;
+              }
+            }
+          }
+        }
+
+        // Альтернативный путь: проверяем response напрямую
+        if (!imageData) {
+          const responseAny = response as any;
+          if (responseAny.images && responseAny.images.length > 0) {
+            imageData = responseAny.images[0].data || responseAny.images[0].imageBytes;
+          }
+        }
+
+        if (!imageData) {
+          // Логируем структуру ответа для отладки
+          logger.debug('Структура ответа API', { 
+            responseType: typeof response,
+            hasCandidates: !!response.candidates,
+            responseKeys: Object.keys(response),
+            responseText: response.text?.substring(0, 100)
+          });
+          throw new Error('Изображение не найдено в ответе API. Проверьте структуру ответа.');
+        }
+
+        const imageDir = path.join(process.cwd(), 'public', 'generated', slug, 'comic');
+        
+        if (!fs.existsSync(imageDir)) {
+          fs.mkdirSync(imageDir, { recursive: true });
+        }
+
+        const filename = `comic-panel-${eventNumber}.png`;
+        const filepath = path.join(imageDir, filename);
+        
+        // Сохраняем base64 в файл
+        const buffer = Buffer.from(imageData, 'base64');
+        fs.writeFileSync(filepath, buffer);
+        
+        const relativePath = `/generated/${slug}/comic/${filename}`;
+        
+        logger.debug('Панель комикса сгенерирована', { profession, event: event.title, path: relativePath });
+        
+        return relativePath;
+      }, 2, 1500);
+      
+      comicImages.push(imagePath);
+      
+      if (onProgress) {
+        onProgress(`Панель ${eventNumber}/${schedule.length} готова ✅`, 40 + ((i + 1) / schedule.length) * 15);
+      }
+      
+      // Небольшая задержка между запросами
+      await new Promise(resolve => setTimeout(resolve, 500));
+    } catch (error: any) {
+      const errorMessage = extractErrorMessage(error);
+      logger.error('Ошибка генерации панели комикса', error, { profession, event: event.title, errorMessage });
+      // В случае ошибки добавляем плейсхолдер
+      comicImages.push(`https://placehold.co/1024x576/1e293b/9333ea?text=Comic+Panel+${eventNumber}`);
+    }
+  }
+  
+  if (onProgress) onProgress('Комикс готов ✅', 55);
+  return comicImages;
+}
+
 // Генерация изображений
 export async function generateImages(
   profession: string,
@@ -1379,6 +1541,34 @@ export async function generateCard(
   const finalVideos = videos.status === 'fulfilled' ? videos.value : [];
   const finalCareerTree = careerTreeResult.status === 'fulfilled' ? careerTreeResult.value : null;
   
+  // Генерация комикса "Живой День в Комиксе" с Gemini 2.5 Flash Image Generation
+  let comicStrip: string[] = [];
+  if (data.schedule && data.schedule.length > 0) {
+    try {
+      if (onProgress) onProgress('Генерирую комикс рабочего дня...', 70);
+      comicStrip = await generateComicStrip(
+        profession,
+        slug,
+        data.schedule,
+        (msg, prog) => {
+          if (onProgress) {
+            // Прогресс: 70% + до 10% (комикс) = 70-80%
+            const totalProgress = 70 + (prog / 100) * 10;
+            onProgress(msg, totalProgress);
+          }
+        },
+        professionDescription,
+        companySize,
+        location,
+        specialization
+      );
+    } catch (error: any) {
+      logger.error('Ошибка генерации комикса', error, { profession, slug });
+      // Не прерываем генерацию из-за ошибки комикса
+      if (onProgress) onProgress('⚠️ Ошибка генерации комикса, продолжаем...', 80);
+    }
+  }
+  
   if (onProgress) onProgress('Завершаю генерацию...', 80);
   
   // 6. Генерация звуков (опционально)
@@ -1428,6 +1618,7 @@ export async function generateCard(
     videos: finalVideos,
     ...(audioData ? { audio: audioData } : {}),
     ...(finalCareerTree ? { careerTree: finalCareerTree } : {}),
+    ...(comicStrip.length > 0 ? { comicStrip } : {}), // Добавляем комикс если он сгенерирован
     generatedAt: new Date().toISOString(),
     // Сохраняем контекстные параметры
     companySize: companySize || undefined,
