@@ -188,6 +188,14 @@ export async function generateProfessionData(
     ? '4 этапа карьеры с названиями типа "Junior [Профессия]", "Middle [Профессия]", "Senior [Профессия]", "Tech Lead / Architect" или аналогичными IT-названиями'
     : '4 этапа карьеры с реальными названиями должностей для этой профессии (НЕ используй "Junior", "Middle", "Senior" - используй реальные названия должностей, например: "Массажист", "Старший массажист", "Ведущий специалист", "Руководитель отдела" или аналогичные)';
 
+  const dialogInstructions = isIT
+    ? 'dialog: реалистичный диалог с коллегой/клиентом в IT-контексте (может быть про код, деплой, баги, проекты и т.д.)'
+    : `dialog: реалистичный диалог с коллегой/клиентом, КОНКРЕТНО связанный с профессией "${profession}". 
+       КРИТИЧЕСКИ ВАЖНО: 
+       - Диалог должен быть про РЕАЛЬНУЮ работу этой профессии (например, для ассенизатора - про канализацию, дренаж, вызовы на объекты; для массажиста - про сеансы, клиентов, техники массажа; для крановщика - про работу крана, строительные объекты и т.д.)
+       - НЕ используй IT-термины (серверы, код, деплой, баги, серверная и т.д.) если это не IT-профессия
+       - Диалог должен отражать типичные рабочие ситуации именно для профессии "${profession}"`;
+
   const prompt = `
 Создай детальную карточку профессии для "${profession}" уровня ${level} в ${company}.
 
@@ -197,7 +205,7 @@ export async function generateProfessionData(
 - benefits: ровно 4 пункта с конкретными цифрами и метриками
 - careerPath: ${careerPathDescription} с реальными зарплатами в рублях
 - skills: ровно 5 ключевых скиллов с уровнем от 40 до 90
-- dialog: реалистичный диалог с коллегой/клиентом
+- ${dialogInstructions}
 - Всё на русском языке
 - Эмоционально, живо, с деталями атмосферы
 - Используй разные эмодзи для каждого события в schedule
@@ -207,6 +215,7 @@ ${!isIT ? `
 КРИТИЧЕСКИ ВАЖНО для НЕ IT профессии:
 - В careerPath НЕ используй слова "Junior", "Middle", "Senior" - используй реальные названия должностей из данной профессии
 - В stack указывай рабочие навыки, инструменты и оборудование, а не технологические стеки
+- В dialog НЕ используй IT-контекст, серверы, код, деплой и т.д. - используй реальные рабочие ситуации профессии "${profession}"
 ` : ''}
 `;
 
@@ -312,6 +321,109 @@ ${!isIT ? `
   }, 3, 2000);
 }
 
+// Генерация детальных описаний профессии для промптов изображений
+async function generateProfessionImageDetails(
+  profession: string,
+  professionDescription?: string
+): Promise<{
+  mainActivity: string;
+  specificTools: string;
+  workplaceSetting: string;
+  professionalAttire: string;
+  keyVisualElements: string;
+  toolsAndEquipment: string;
+  actionVerb: string;
+  specificTask: string;
+  materialDetails: string;
+  workspaceLayout: string;
+  allToolsLaidOut: string;
+  workDocuments: string;
+  timeOfDay: string;
+  fullContextActivity: string;
+  surroundingEnvironment: string;
+  teamOrClients: string;
+}> {
+  const ai = getAIClient();
+  
+  const prompt = `Ты эксперт по визуализации профессиональных сцен. Для профессии "${profession}"${professionDescription ? ` (${professionDescription})` : ''} создай детальное описание ключевых визуальных элементов для генерации изображений.
+
+ВАЖНО: Описание должно быть очень конкретным и специфичным именно для профессии "${profession}". НЕ используй общие фразы. Для каждой категории укажи конкретные детали.
+
+Ответь ТОЛЬКО в формате JSON:
+{
+  "mainActivity": "основное действие, которое выполняет специалист (например, для ассенизатора: 'работа с ассенизационной машиной, подключение шланга к канализационному колодцу')",
+  "specificTools": "конкретные инструменты и оборудование, характерные для этой профессии (например, для ассенизатора: 'вакуумный насос, гибкие шланги большого диаметра, ассенизационная машина с цистерной')",
+  "workplaceSetting": "конкретное место работы (например, для ассенизатора: 'у канализационного колодца на улице, рядом с ассенизационной машиной')",
+  "professionalAttire": "специфичная рабочая одежда и защитное оборудование (например, для ассенизатора: 'рабочий комбинезон, резиновые перчатки, защитные сапоги, респиратор')",
+  "keyVisualElements": "ключевые визуальные элементы, которые должны быть видны (например, для ассенизатора: 'специальная машина с цистерной, шланги, колодец, предупреждающие знаки')",
+  "toolsAndEquipment": "детальное описание инструментов (например, для ассенизатора: 'вакуумный насос с рукавами, шланги различного диаметра, инструменты для обслуживания')",
+  "actionVerb": "действие в процессе работы (например, для ассенизатора: 'откачивающий', 'подключающий')",
+  "specificTask": "конкретная задача (например, для ассенизатора: 'откачку канализационных стоков из колодца')",
+  "materialDetails": "детали материалов и их состояния (например, для ассенизатора: 'металлические поверхности машин, изношенные резиновые шланги, чистящие средства')",
+  "workspaceLayout": "организация рабочего пространства (например, для ассенизатора: 'рабочая зона вокруг колодца с разложенными инструментами и шлангами')",
+  "allToolsLaidOut": "все инструменты, разложенные для работы (например, для ассенизатора: 'шланги, соединители, ключи, инструменты для обслуживания насоса, средства защиты')",
+  "workDocuments": "документы, связанные с работой (например, для ассенизатора: 'путевые листы, заявки на выезд, отчеты о выполненных работах')",
+  "timeOfDay": "время дня для съемки (например: 'дневное время' или 'раннее утро')",
+  "fullContextActivity": "полная картина деятельности (например, для ассенизатора: 'откачивание канализационных стоков из городского колодца')",
+  "surroundingEnvironment": "окружающая среда (например, для ассенизатора: 'городская улица, тротуар, ближайшие здания, дорожные знаки')",
+  "teamOrClients": "команда или клиенты (например, для ассенизатора: 'напарник-помощник или диспетчер по рации')"
+}`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+      config: {
+        temperature: 0.5,
+        responseMimeType: 'application/json',
+      },
+    });
+
+    const result = JSON.parse(response.text || '{}');
+    
+    // Возвращаем результат с дефолтными значениями на случай отсутствия некоторых полей
+    return {
+      mainActivity: result.mainActivity || `${profession} выполняет основные рабочие задачи`,
+      specificTools: result.specificTools || `профессиональные инструменты для ${profession}`,
+      workplaceSetting: result.workplaceSetting || `рабочее место ${profession}`,
+      professionalAttire: result.professionalAttire || `рабочая одежда ${profession}`,
+      keyVisualElements: result.keyVisualElements || `ключевые элементы профессии ${profession}`,
+      toolsAndEquipment: result.toolsAndEquipment || `инструменты и оборудование ${profession}`,
+      actionVerb: result.actionVerb || 'работающий',
+      specificTask: result.specificTask || `выполнение задач профессии ${profession}`,
+      materialDetails: result.materialDetails || `материалы и инструменты ${profession}`,
+      workspaceLayout: result.workspaceLayout || `организованное рабочее пространство ${profession}`,
+      allToolsLaidOut: result.allToolsLaidOut || `все необходимые инструменты для ${profession}`,
+      workDocuments: result.workDocuments || `рабочие документы и записи ${profession}`,
+      timeOfDay: result.timeOfDay || 'дневное время',
+      fullContextActivity: result.fullContextActivity || `выполнение работы ${profession}`,
+      surroundingEnvironment: result.surroundingEnvironment || `рабочая среда ${profession}`,
+      teamOrClients: result.teamOrClients || `коллеги или клиенты ${profession}`,
+    };
+  } catch (error: any) {
+    console.error('Ошибка генерации деталей профессии для изображений:', error);
+    // Возвращаем базовые значения в случае ошибки
+    return {
+      mainActivity: `${profession} выполняет основные рабочие задачи`,
+      specificTools: `профессиональные инструменты для ${profession}`,
+      workplaceSetting: `рабочее место ${profession}`,
+      professionalAttire: `рабочая одежда ${profession}`,
+      keyVisualElements: `ключевые элементы профессии ${profession}`,
+      toolsAndEquipment: `инструменты и оборудование ${profession}`,
+      actionVerb: 'работающий',
+      specificTask: `выполнение задач профессии ${profession}`,
+      materialDetails: `материалы и инструменты ${profession}`,
+      workspaceLayout: `организованное рабочее пространство ${profession}`,
+      allToolsLaidOut: `все необходимые инструменты для ${profession}`,
+      workDocuments: `рабочие документы и записи ${profession}`,
+      timeOfDay: 'дневное время',
+      fullContextActivity: `выполнение работы ${profession}`,
+      surroundingEnvironment: `рабочая среда ${profession}`,
+      teamOrClients: `коллеги или клиенты ${profession}`,
+    };
+  }
+}
+
 // Генерация изображений
 export async function generateImages(
   profession: string,
@@ -337,17 +449,14 @@ export async function generateImages(
       `Cinematic wide shot: ${profession} deep in flow state at night, wearing hoodie, side profile, face illuminated only by multiple monitor glow in dark room, messy hair, intense focused expression, can of energy drink in hand, pizza box on desk, headphones on, code visible on screens, moody cyberpunk aesthetic, realistic photography`,
     ];
   } else {
-    // Используем уточненное описание если оно есть, иначе используем название профессии
-    // Если есть уточненное описание, используем его для более точных промптов
-    const mainContext = professionDescription 
-      ? `${profession} - ${professionDescription}`
-      : profession;
+    // Генерируем детальные промпты с использованием AI для получения специфичных деталей профессии
+    const professionDetails = await generateProfessionImageDetails(profession, professionDescription);
     
     prompts = [
-      `First-person POV: ${mainContext} hands actively working, professional tools and equipment specific to this profession in use, realistic workplace environment${professionDescription ? ` showing ${professionDescription}` : ''}, customers or colleagues visible in background, natural lighting, candid authentic moment, movement and energy, real-life mess and activity`,
-      `Close-up shot: ${mainContext} professional equipment and tools being used, hands in action, detailed view of craft${professionDescription ? `, showing ${professionDescription}` : ''}, authentic wear and tear on tools, workspace details, natural lighting, professional photography, realistic working conditions`,
-      `Flat lay overhead view: ${mainContext} workspace during busy shift - all necessary tools laid out${professionDescription ? ` for ${professionDescription}` : ''}, work in progress, organized chaos, professional equipment, order receipts or work documents, smartphone, keys, water bottle, authentic workspace mess, natural daylight`,
-      `Cinematic environmental shot: ${mainContext} in action during peak hours${professionDescription ? `, showing ${professionDescription}` : ''}, dynamic movement, real customers or team around, authentic workplace atmosphere, natural expressions, busy environment, professional uniform or work attire, realistic lighting, documentary photography style, capturing the vibe and energy`,
+      `First-person POV hands-on view: ${professionDetails.mainActivity}, ${professionDetails.specificTools} visible and in use, ${professionDetails.workplaceSetting}, ${professionDetails.professionalAttire}, authentic working moment, ${professionDetails.keyVisualElements}, natural lighting, realistic detail, candid photography style`,
+      `Close-up detail shot: ${professionDetails.toolsAndEquipment} being actively used by ${profession} professional, ${professionDetails.actionVerb} ${professionDetails.specificTask}, hands in action, ${professionDetails.materialDetails}, authentic wear and use marks, professional quality photography, natural daylight`,
+      `Overhead flat lay view: ${professionDetails.workspaceLayout} during active work shift, ${professionDetails.allToolsLaidOut}, work in progress visible, ${professionDetails.workDocuments}, authentic workspace organization, realistic professional equipment, natural daylight, detailed composition`,
+      `Cinematic environmental portrait: ${profession} professional in action at ${professionDetails.timeOfDay}, ${professionDetails.fullContextActivity}, ${professionDetails.surroundingEnvironment}, ${professionDetails.teamOrClients}, authentic workplace atmosphere, ${professionDetails.professionalAttire}, dynamic movement, realistic lighting, documentary photography style, capturing authentic professional moment`,
     ];
   }
 
