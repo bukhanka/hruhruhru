@@ -804,55 +804,106 @@ export async function generateImages(
     .filter(Boolean)
     .join(', ');
   
-  let prompts: string[];
+  const baseContext = contextualPromptAddition ? `, ${contextualPromptAddition}` : '';
   
-  if (isITProfession) {
-    const baseContext = contextualPromptAddition ? `, ${contextualPromptAddition}` : '';
-    prompts = [
-      `First-person view POV: ${profession} hands typing on mechanical keyboard, RGB backlight, dual monitors showing real code editor and terminal with commands, energy drink can, sticky notes with passwords on monitor frame, tangled cables, warm desk lamp light, 2am vibe, authentic programmer workspace chaos${baseContext}, ultrarealistic`,
-      `Extreme close-up: computer screen showing authentic ${profession} work - IDE with code, terminal logs scrolling, browser with Stack Overflow tabs, Slack message notifications popping, GitHub commits, blinking cursor, slight screen glare, coffee stain on desk visible in corner, person's tired reflection in screen, dim room lighting${baseContext}, cinematic`,
-      `Flat lay top-down: ${profession} messy workspace during active work - laptop covered with developer stickers (Linux, GitHub, etc), second monitor, mechanical keyboard, gaming mouse, smartphone showing work messages, open notebook with handwritten schemas and bugs, 3 coffee mugs, snack wrappers, USB cables everywhere, AirPods, smartwatch${baseContext}, afternoon natural light, authentic chaos`,
-      `Cinematic wide shot: ${profession} deep in flow state at night, wearing hoodie, side profile, face illuminated only by multiple monitor glow in dark room, messy hair, intense focused expression, can of energy drink in hand, pizza box on desk, headphones on, code visible on screens${baseContext}, moody cyberpunk aesthetic, realistic photography`,
-    ];
-  } else {
-    // Генерируем детальные промпты с использованием AI для получения специфичных деталей профессии
-    const professionDetails = await generateProfessionImageDetails(profession, professionDescription);
-    
-    const baseContext = contextualPromptAddition ? `, ${contextualPromptAddition}` : '';
-    
-    prompts = [
-      `First-person POV hands-on view: ${professionDetails.mainActivity}, ${professionDetails.specificTools} visible and in use, ${professionDetails.workplaceSetting}, ${professionDetails.professionalAttire}, authentic working moment, ${professionDetails.keyVisualElements}${baseContext}, natural lighting, realistic detail, candid photography style`,
-      `Close-up detail shot: ${professionDetails.toolsAndEquipment} being actively used by ${profession} professional, ${professionDetails.actionVerb} ${professionDetails.specificTask}, hands in action, ${professionDetails.materialDetails}, authentic wear and use marks${baseContext}, professional quality photography, natural daylight`,
-      `Overhead flat lay view: ${professionDetails.workspaceLayout} during active work shift, ${professionDetails.allToolsLaidOut}, work in progress visible, ${professionDetails.workDocuments}, authentic workspace organization${baseContext}, realistic professional equipment, natural daylight, detailed composition`,
-      `Cinematic environmental portrait: ${profession} professional in action at ${professionDetails.timeOfDay}, ${professionDetails.fullContextActivity}, ${professionDetails.surroundingEnvironment}, ${professionDetails.teamOrClients}, authentic workplace atmosphere, ${professionDetails.professionalAttire}${baseContext}, dynamic movement, realistic lighting, documentary photography style, capturing authentic professional moment`,
-    ];
+  // Генерируем детальные промпты с использованием AI для получения специфичных деталей профессии (только для не-IT)
+  let professionDetails: any = null;
+  if (!isITProfession) {
+    professionDetails = await generateProfessionImageDetails(profession, professionDescription);
   }
+  
+  // Новые промпты для коллажа - все 4 фото одинакового размера:
+  // image-1: Рабочее место профессионала (1:1)
+  // image-2: AI портрет профессионала (1:1)
+  // image-3: Детали/инструменты работы - УНИКАЛЬНЫЕ, не повторяющие фото 1 и 2 (1:1)
+  // image-4: Элементы/материалы работы - УНИКАЛЬНЫЕ, не повторяющие фото 1, 2 и 3 (1:1)
+  const imageConfigs = [
+    {
+      prompt: isITProfession
+        ? `Professional workspace environment: ${profession} workspace with dual monitors, mechanical keyboard, modern office setup, desk organization, tech equipment visible, professional office atmosphere${baseContext}, wide angle shot showing full workspace, cinematic quality, realistic photography`
+        : `Professional workplace environment: ${professionDetails?.workplaceSetting || 'professional workspace'}, ${professionDetails?.workspaceLayout || 'organized workspace'}, ${professionDetails?.allToolsLaidOut || 'professional tools'}, ${professionDetails?.keyVisualElements || 'professional equipment'}, authentic professional workspace${baseContext}, wide angle shot showing full workspace, cinematic quality, realistic photography`,
+      aspectRatio: "1:1" as const,
+      description: "Рабочее место",
+      size: "medium"
+    },
+    {
+      prompt: isITProfession
+        ? `Professional portrait: AI-generated portrait of a ${profession} professional, confident expression, modern professional attire, tech environment in background, professional headshot, high quality portrait photography${baseContext}, professional lighting, realistic photography. IMPORTANT: This is a PORTRAIT photo, focus on the person's face and upper body, do NOT include workspace details or tools that appear in image 1`
+        : `Professional portrait: AI-generated portrait of a ${profession} professional, ${professionDetails?.professionalAttire || 'professional attire'}, confident expression, ${professionDetails?.surroundingEnvironment || 'professional environment'} in background, professional headshot${baseContext}, high quality portrait photography, professional lighting, realistic photography. IMPORTANT: This is a PORTRAIT photo, focus on the person's face and upper body, do NOT include workspace details or tools that appear in image 1`,
+      aspectRatio: "1:1" as const,
+      description: "Портрет профессионала",
+      size: "medium"
+    },
+    {
+      prompt: isITProfession
+        ? `Close-up detail shot of ${profession} work tools and equipment: hands typing on keyboard, code visible on screen, debugging tools, terminal commands, specific professional equipment details, work tools in use${baseContext}, macro photography style, artistic detail, high quality photography. CRITICAL: This photo must show SPECIFIC WORK TOOLS AND EQUIPMENT only - NO full workspace (different from image 1), NO person's face (different from image 2). Focus on tools, equipment, materials, or specific work elements unique to this profession`
+        : `Close-up detail shot of ${profession} work tools and equipment: ${professionDetails?.toolsAndEquipment || 'professional tools'} being actively used, ${professionDetails?.specificTools || 'work equipment'} in hands, ${professionDetails?.materialDetails || 'professional materials'}, authentic work process details${baseContext}, macro photography style, artistic detail, high quality photography. CRITICAL: This photo must show SPECIFIC WORK TOOLS AND EQUIPMENT only - NO full workspace (different from image 1), NO person's face (different from image 2). Focus on tools, equipment, materials, or specific work elements unique to this profession`,
+      aspectRatio: "1:1" as const,
+      description: "Инструменты работы",
+      size: "medium"
+    },
+    {
+      prompt: isITProfession
+        ? `Unique professional elements: ${profession} work artifacts, documentation, code snippets, diagrams, project materials, workflow elements, specific professional items${baseContext}, still life composition, artistic arrangement, high quality photography. CRITICAL: This photo must show DIFFERENT elements from images 1, 2, and 3. Do NOT show full workspace (image 1), do NOT show person (image 2), do NOT show same tools as image 3. Show unique work materials, documents, artifacts, or specific elements that represent this profession's unique aspects`
+        : `Unique professional elements: ${professionDetails?.workDocuments || 'professional documents'}, ${professionDetails?.materialDetails || 'work materials'}, specific ${profession} work artifacts, project elements, professional materials arranged artistically${baseContext}, still life composition, artistic arrangement, high quality photography. CRITICAL: This photo must show DIFFERENT elements from images 1, 2, and 3. Do NOT show full workspace (image 1), do NOT show person (image 2), do NOT show same tools as image 3. Show unique work materials, documents, artifacts, or specific elements that represent this profession's unique aspects`,
+      aspectRatio: "1:1" as const,
+      description: "Элементы работы",
+      size: "medium"
+    }
+  ];
 
   const ai = getAIClient();
   
   // Распараллеливаем генерацию всех изображений одновременно
   if (onProgress) onProgress('Генерирую изображения параллельно...', 35);
   
-  const imagePromises = prompts.map(async (prompt, index) => {
+  const imagePromises = imageConfigs.map(async (config, index) => {
     try {
       const imagePath = await withRetry(async () => {
         try {
-          const response = await ai.models.generateImages({
-            model: 'imagen-3.0-generate-002',
-            prompt: prompt,
+          const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash-image',
+            contents: config.prompt,
             config: {
-              numberOfImages: 1,
-              aspectRatio: "1:1",
+              imageConfig: {
+                aspectRatio: config.aspectRatio,
+              },
             },
           });
 
-          if (!response.generatedImages || response.generatedImages.length === 0) {
-            throw new Error('No images generated');
+          // Извлекаем изображение из ответа
+          // Согласно документации, изображение возвращается в inlineData внутри parts
+          let imageData: string | null = null;
+
+          // Пробуем получить изображение из candidates[0].content.parts
+          const candidates = response.candidates || [];
+          if (candidates.length > 0) {
+            const content = candidates[0].content;
+            if (content && content.parts) {
+              for (const part of content.parts) {
+                // Проверяем разные возможные структуры ответа
+                if ((part as any).inlineData && (part as any).inlineData.data) {
+                  imageData = (part as any).inlineData.data;
+                  break;
+                }
+                if ((part as any).image && (part as any).image.data) {
+                  imageData = (part as any).image.data;
+                  break;
+                }
+              }
+            }
           }
 
-          const image = response.generatedImages[0];
-          if (!image.image?.imageBytes) {
-            throw new Error('Image data is missing');
+          // Альтернативный путь: проверяем response напрямую
+          if (!imageData) {
+            const responseAny = response as any;
+            if (responseAny.images && responseAny.images.length > 0) {
+              imageData = responseAny.images[0].data || responseAny.images[0].imageBytes;
+            }
+          }
+
+          if (!imageData) {
+            throw new Error('Image data is missing in response');
           }
 
           const imageDir = path.join(process.cwd(), 'public', 'generated', slug);
@@ -864,14 +915,14 @@ export async function generateImages(
           const filename = `image-${index + 1}.png`;
           const filepath = path.join(imageDir, filename);
           
-          const buffer = Buffer.from(image.image.imageBytes, 'base64');
+          const buffer = Buffer.from(imageData, 'base64');
           fs.writeFileSync(filepath, buffer);
           
           if (onProgress) {
-            onProgress(`Изображение ${index + 1}/4 готово ✅`, 35 + ((index + 1) / prompts.length) * 40);
+            onProgress(`${config.description} ${index + 1}/4 готово ✅`, 35 + ((index + 1) / imageConfigs.length) * 40);
           }
           
-          return { index, path: `/generated/${slug}/${filename}` };
+          return { index, path: `/generated/${slug}/${filename}`, aspectRatio: config.aspectRatio };
         } catch (error: any) {
           // Пробрасываем ошибку через extractErrorMessage
           const errorMessage = extractErrorMessage(error);
@@ -882,7 +933,7 @@ export async function generateImages(
       return imagePath;
     } catch (error: any) {
       console.error(`Ошибка генерации изображения ${index + 1}:`, error.message);
-      return { index, path: `https://placehold.co/400x400/1e293b/9333ea?text=Image+${index + 1}` };
+      return { index, path: `https://placehold.co/400x400/1e293b/9333ea?text=Image+${index + 1}`, aspectRatio: "1:1" as const };
     }
   });
   

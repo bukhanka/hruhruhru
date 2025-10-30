@@ -504,14 +504,19 @@ export default function ProfessionPage({ params }: { params: Promise<{ id: strin
         <main className="mx-auto flex max-w-5xl flex-col gap-8 px-4 pb-28 pt-6 sm:px-6">
           <section id="overview" className="scroll-mt-28 space-y-6">
             <ContentCard title="Визуальный вайб" subtitle="Погрузись в окружение" padding="p-4 sm:p-6">
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <div className="grid grid-cols-2 gap-3 sm:gap-4">
                 {data.images?.map((image, index) => (
                   <div key={`${image}-${index}`} className="group relative aspect-square overflow-hidden rounded-2xl bg-hh-gray-100">
                     <Image
                       src={image}
-                      alt={`${data.profession} mood ${index + 1}`}
+                      alt={
+                        index === 0 ? `Рабочее место ${data.profession}` :
+                        index === 1 ? `Портрет профессионала ${data.profession}` :
+                        index === 2 ? `Инструменты работы ${data.profession}` :
+                        `Элементы работы ${data.profession}`
+                      }
                       fill
-                      sizes="(max-width: 640px) 50vw, 25vw"
+                      sizes="(max-width: 640px) 50vw, 50vw"
                       className="object-cover transition-transform duration-500 group-hover:scale-105"
                     />
                   </div>
