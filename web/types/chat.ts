@@ -28,6 +28,10 @@ export interface UserPersona {
   currentRole?: string;
   goals?: string[];
   isUncertain?: boolean;
+  // Новые параметры для уточнения профессии
+  companySize?: 'startup' | 'medium' | 'large' | 'any'; // Размер компании
+  location?: 'moscow' | 'spb' | 'other' | 'remote'; // Локация работы
+  specialization?: string; // Специализация внутри профессии
 }
 
 export interface ChatState {

@@ -168,6 +168,83 @@ ${history.slice(-5).map((m) => `${m.role}: ${m.content}`).join('\n')}
   }
 }
 
+// Генерация уточняющего вопроса о размере компании
+async function generateCompanySizeQuestion(): Promise<{ content: string; buttons: string[] }> {
+  return {
+    content: 'Какой тип компании вам интересен?',
+    buttons: ['Стартап', 'Средняя компания', 'Крупная корпорация', 'Не важно'],
+  };
+}
+
+// Генерация уточняющего вопроса о локации
+async function generateLocationQuestion(): Promise<{ content: string; buttons: string[] }> {
+  return {
+    content: 'В каком городе/регионе вы собираетесь работать?',
+    buttons: ['Москва', 'Санкт-Петербург', 'Другой город', 'Удаленно'],
+  };
+}
+
+// Генерация уточняющего вопроса о специализации
+async function generateSpecializationQuestion(profession: string): Promise<{ content: string; buttons: string[] }> {
+  const ai = getAIClient();
+  
+  const prompt = `Ты AI-ассистент для карьерного консультирования. Для профессии "${profession}" предложи 3-4 возможные специализации или направления внутри этой профессии.
+
+Например:
+- Для "Бариста": "Кофейня в ТЦ", "Специализированная кофейня", "Кофейня в отеле", "Кофе-трак"
+- Для "Frontend разработчик": "Финтех", "E-commerce", "Образовательные платформы", "Не важно"
+- Для "Массажист": "Классический массаж", "Спортивный массаж", "Лечебный массаж", "Не важно"
+
+Ответь ТОЛЬКО в формате JSON:
+{
+  "content": "В какой сфере внутри профессии вы бы хотели попробовать?",
+  "buttons": ["Вариант 1", "Вариант 2", "Вариант 3", "Не важно"]
+}
+
+Кнопки должны быть короткими (2-4 слова) и релевантными для профессии "${profession}".`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+      config: {
+        temperature: 0.7,
+        responseMimeType: 'application/json',
+      },
+    });
+
+    const result = JSON.parse(response.text || '{}');
+    
+    return {
+      content: result.content || 'В какой сфере внутри профессии вы бы хотели попробовать?',
+      buttons: result.buttons || ['Вариант 1', 'Вариант 2', 'Вариант 3', 'Не важно'],
+    };
+  } catch (error: any) {
+    console.error('Ошибка генерации вопроса о специализации:', error);
+    return {
+      content: 'В какой сфере внутри профессии вы бы хотели попробовать?',
+      buttons: ['Финтех', 'Ритейл', 'Продуктовый магазин', 'Не важно'],
+    };
+  }
+}
+
+// Преобразование ответа пользователя в параметры
+function mapCompanySizeAnswer(answer: string): 'startup' | 'medium' | 'large' | 'any' {
+  const answerLower = answer.toLowerCase();
+  if (answerLower.includes('стартап')) return 'startup';
+  if (answerLower.includes('средн')) return 'medium';
+  if (answerLower.includes('крупн') || answerLower.includes('корпорац')) return 'large';
+  return 'any';
+}
+
+function mapLocationAnswer(answer: string): 'moscow' | 'spb' | 'other' | 'remote' {
+  const answerLower = answer.toLowerCase();
+  if (answerLower.includes('москв')) return 'moscow';
+  if (answerLower.includes('санкт') || answerLower.includes('петербург') || answerLower.includes('спб')) return 'spb';
+  if (answerLower.includes('удален') || answerLower.includes('remote')) return 'remote';
+  return 'other';
+}
+
 // Clarifier: генерирует уточняющие вопросы
 async function generateClarifyingQuestions(
   intent: any,
@@ -491,6 +568,10 @@ export async function POST(request: NextRequest) {
     
     const isAnsweringProfessionClarification = lastAssistantMessage?.metadata?.isProfessionClarification === true;
     const professionToClarify = lastAssistantMessage?.metadata?.professionToClarify;
+    
+    // Проверяем, на каком этапе уточняющих вопросов мы находимся
+    const clarificationStep = lastAssistantMessage?.metadata?.clarificationStep;
+    const professionForClarification = lastAssistantMessage?.metadata?.professionForClarification;
 
     // Step 4: Decide response based on intent
     let responseMessage: any = {
@@ -500,8 +581,82 @@ export async function POST(request: NextRequest) {
 
     let stage: ChatResponse['stage'] = 'initial';
 
-    // Если пользователь отвечает на уточняющий вопрос о профессии
-    if (isAnsweringProfessionClarification && professionToClarify) {
+    // Обработка уточняющих вопросов (три шага: размер компании, локация, специализация)
+    if (clarificationStep && professionForClarification) {
+      // Обновляем персону с ответом пользователя
+      if (clarificationStep === 'company_size') {
+        persona.companySize = mapCompanySizeAnswer(message);
+        
+        // Задаем следующий вопрос о локации
+        const locationQuestion = await generateLocationQuestion();
+        responseMessage = {
+          type: 'buttons',
+          content: locationQuestion.content,
+          buttons: locationQuestion.buttons,
+          metadata: {
+            clarificationStep: 'location',
+            professionForClarification,
+          },
+        };
+        stage = 'clarifying';
+      } else if (clarificationStep === 'location') {
+        persona.location = mapLocationAnswer(message);
+        
+        // Задаем следующий вопрос о специализации
+        const specializationQuestion = await generateSpecializationQuestion(professionForClarification);
+        responseMessage = {
+          type: 'buttons',
+          content: specializationQuestion.content,
+          buttons: specializationQuestion.buttons,
+          metadata: {
+            clarificationStep: 'specialization',
+            professionForClarification,
+          },
+        };
+        stage = 'clarifying';
+      } else if (clarificationStep === 'specialization') {
+        persona.specialization = message;
+        
+        // Все три вопроса заданы, генерируем карточку
+        try {
+          const level = intent.extractedInfo?.level || 'Middle';
+          const company = intent.extractedInfo?.company || 'IT-компания';
+          
+          // Генерируем карточку с учетом всех параметров
+          const generatedCard = await generateCard(
+            professionForClarification,
+            level,
+            company,
+            undefined,
+            undefined,
+            persona.companySize,
+            persona.location,
+            persona.specialization
+          );
+          
+          responseMessage = {
+            type: 'cards',
+            content: `Отлично! Я сгенерировал карточку для профессии "${professionForClarification}" с учетом ваших предпочтений:`,
+            cards: [{
+              slug: generatedCard.slug,
+              profession: generatedCard.profession,
+              level: generatedCard.level,
+              company: generatedCard.company,
+              image: generatedCard.images?.[0] || null,
+            }],
+          };
+          stage = 'showing_results';
+        } catch (error: any) {
+          console.error('Generation error:', error);
+          responseMessage = {
+            type: 'text',
+            content: `К сожалению, не удалось сгенерировать карточку для "${professionForClarification}". Ошибка: ${error.message}`,
+          };
+          stage = 'initial';
+        }
+      }
+    } else if (isAnsweringProfessionClarification && professionToClarify) {
+      // Старая логика уточнения профессии - теперь после нее запускаем три новых вопроса
       try {
         // Извлекаем уточненное описание из ответа пользователя
         const professionDescription = await extractProfessionDescription(
@@ -510,36 +665,24 @@ export async function POST(request: NextRequest) {
           history
         );
         
-        const level = intent.extractedInfo?.level || 'Middle';
-        const company = intent.extractedInfo?.company || 'IT-компания';
-        
-        // Генерируем карточку профессии с уточненным описанием
-        const generatedCard = await generateCard(
-          professionToClarify,
-          level,
-          company,
-          undefined,
-          professionDescription || undefined
-        );
-        
-        // Преобразуем в формат карточки для чата
+        // Теперь не генерируем карточку сразу, а задаем первый уточняющий вопрос
+        const companySizeQuestion = await generateCompanySizeQuestion();
         responseMessage = {
-          type: 'cards',
-          content: `Отлично! Я сгенерировал карточку для профессии "${professionToClarify}":`,
-          cards: [{
-            slug: generatedCard.slug,
-            profession: generatedCard.profession,
-            level: generatedCard.level,
-            company: generatedCard.company,
-            image: generatedCard.images?.[0] || null,
-          }],
+          type: 'buttons',
+          content: companySizeQuestion.content,
+          buttons: companySizeQuestion.buttons,
+          metadata: {
+            clarificationStep: 'company_size',
+            professionForClarification: professionToClarify,
+            professionDescription: professionDescription || undefined,
+          },
         };
-        stage = 'showing_results';
+        stage = 'clarifying';
       } catch (error: any) {
-        console.error('Generation error:', error);
+        console.error('Clarification error:', error);
         responseMessage = {
           type: 'text',
-          content: `К сожалению, не удалось сгенерировать карточку для "${professionToClarify}". Ошибка: ${error.message}`,
+          content: `К сожалению, произошла ошибка при обработке вашего ответа. Попробуйте еще раз.`,
         };
         stage = 'initial';
       }
@@ -588,37 +731,39 @@ export async function POST(request: NextRequest) {
           stage = 'clarifying';
         } catch (error: any) {
           console.error('Clarification question generation error:', error);
-          // Если не удалось сгенерировать уточняющий вопрос, генерируем карточку напрямую
-          try {
-            const professionName = results.professionToGenerate;
-            const level = intent.extractedInfo?.level || 'Middle';
-            const company = intent.extractedInfo?.company || 'IT-компания';
-            
-            const generatedCard = await generateCard(professionName, level, company);
-            
-            responseMessage = {
-              type: 'cards',
-              content: `Отлично! Я сгенерировал карточку для профессии "${professionName}":`,
-              cards: [{
-                slug: generatedCard.slug,
-                profession: generatedCard.profession,
-                level: generatedCard.level,
-                company: generatedCard.company,
-                image: generatedCard.images?.[0] || null,
-              }],
-            };
-            stage = 'showing_results';
-          } catch (genError: any) {
-            console.error('Generation error:', genError);
-            responseMessage = {
-              type: 'text',
-              content: `К сожалению, не удалось сгенерировать карточку для "${results.professionToGenerate}". Ошибка: ${genError.message}`,
-            };
-            stage = 'initial';
-          }
+          // Если не удалось сгенерировать уточняющий вопрос, сразу задаем три уточняющих вопроса
+          const professionName = results.professionToGenerate;
+          const companySizeQuestion = await generateCompanySizeQuestion();
+          
+          responseMessage = {
+            type: 'buttons',
+            content: companySizeQuestion.content,
+            buttons: companySizeQuestion.buttons,
+            metadata: {
+              clarificationStep: 'company_size',
+              professionForClarification: professionName,
+            },
+          };
+          stage = 'clarifying';
         }
+      } else if (results.cards && results.cards.length === 1) {
+        // Если найдена ровно одна профессия, задаем три уточняющих вопроса перед показом карточки
+        const professionName = results.cards[0].profession;
+        const companySizeQuestion = await generateCompanySizeQuestion();
+        
+        responseMessage = {
+          type: 'buttons',
+          content: `Отлично! Я нашел профессию "${professionName}". ${companySizeQuestion.content}`,
+          buttons: companySizeQuestion.buttons,
+          metadata: {
+            clarificationStep: 'company_size',
+            professionForClarification: professionName,
+            existingProfessionSlug: results.cards[0].slug,
+          },
+        };
+        stage = 'clarifying';
       } else {
-        // Обычный результат поиска
+        // Обычный результат поиска (несколько профессий)
         responseMessage = {
           type: 'cards',
           content: results.content,

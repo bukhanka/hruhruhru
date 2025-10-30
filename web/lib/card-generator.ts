@@ -170,7 +170,10 @@ export async function generateProfessionData(
   profession: string,
   level: string,
   company: string,
-  onProgress?: (message: string, progress: number) => void
+  onProgress?: (message: string, progress: number) => void,
+  companySize?: 'startup' | 'medium' | 'large' | 'any',
+  location?: 'moscow' | 'spb' | 'other' | 'remote',
+  specialization?: string
 ) {
   if (onProgress) onProgress('Определяю тип профессии...', 5);
   
@@ -196,8 +199,45 @@ export async function generateProfessionData(
        - НЕ используй IT-термины (серверы, код, деплой, баги, серверная и т.д.) если это не IT-профессия
        - Диалог должен отражать типичные рабочие ситуации именно для профессии "${profession}"`;
 
+  // Построение контекста на основе уточняющих параметров
+  const companySizeContext = companySize ? (() => {
+    switch(companySize) {
+      case 'startup': return 'В стартапе: небольшая команда, быстрое принятие решений, меньше бюрократии, больше ответственности на каждого, возможно совмещение задач. В рабочем дне меньше встреч, больше практической работы.';
+      case 'medium': return 'В средней компании: структурированные процессы, есть командные встречи (дейлики, планирования), баланс между бюрократией и гибкостью, возможности роста.';
+      case 'large': return 'В крупной корпорации: много встреч (дейлики, планирования, ретро, синки), строгие процессы, много документации, четкая иерархия, большая команда. Рабочий день включает много коммуникации и координации.';
+      default: return '';
+    }
+  })() : '';
+
+  const locationContext = location ? (() => {
+    switch(location) {
+      case 'moscow': return 'Москва: высокая конкуренция, больше возможностей, выше зарплаты. Учитывай московские реалии в рабочем дне и статистике.';
+      case 'spb': return 'Санкт-Петербург: развитый рынок, чуть ниже зарплаты чем в Москве. Учитывай питерские реалии в рабочем дне и статистике.';
+      case 'other': return 'Другой город (регион): более размеренный темп, ниже стоимость жизни, меньше конкуренция. Учитывай региональную специфику.';
+      case 'remote': return 'Удаленная работа: гибкий график, работа из дома, онлайн встречи, самоорганизация. Рабочий день должен отражать удаленный формат работы (онлайн встречи, мессенджеры, видеозвонки).';
+      default: return '';
+    }
+  })() : '';
+
+  const specializationContext = specialization ? `Специализация внутри профессии: ${specialization}. Это должно влиять на конкретные задачи, инструменты, стек технологий и рабочий процесс.` : '';
+
+  const contextualInstructions = `
+КРИТИЧЕСКИ ВАЖНО - учитывай следующий контекст:
+${companySizeContext}
+${locationContext}
+${specializationContext}
+
+Эти параметры должны влиять на:
+1. Рабочий день (schedule): ${companySizeContext ? 'количество и типы встреч, темп работы, характер задач' : ''} ${locationContext ? 'особенности локации или удаленки' : ''}
+2. ${isIT ? 'Стек технологий' : 'Инструменты'} (stack): ${specializationContext ? 'специфичные для выбранной специализации' : 'релевантные инструменты'}
+3. Диалоги (dialog): ${companySizeContext ? 'стиль коммуникации, упоминание процессов компании' : ''} ${specializationContext ? 'контекст специализации' : ''}
+4. Преимущества (benefits): ${companySizeContext ? 'характерные для размера компании' : ''}
+`;
+
   const prompt = `
 Создай детальную карточку профессии для "${profession}" уровня ${level} в ${company}.
+
+${contextualInstructions}
 
 ВАЖНЫЕ ТРЕБОВАНИЯ:
 - schedule: ровно 6 событий за рабочий день (с 10:00 до 18:00)
@@ -429,7 +469,10 @@ export async function generateImages(
   profession: string,
   slug: string,
   onProgress?: (message: string, progress: number) => void,
-  professionDescription?: string // Уточненное описание профессии для более точных промптов
+  professionDescription?: string, // Уточненное описание профессии для более точных промптов
+  companySize?: 'startup' | 'medium' | 'large' | 'any',
+  location?: 'moscow' | 'spb' | 'other' | 'remote',
+  specialization?: string
 ): Promise<string[]> {
   if (onProgress) onProgress('Генерирую изображения...', 35);
   
@@ -439,24 +482,52 @@ export async function generateImages(
                          profession.toLowerCase().includes('программист') ||
                          profession.toLowerCase().includes('разработчик');
   
+  // Контекстные дополнения для промптов изображений
+  const companySizeImageContext = companySize ? (() => {
+    switch(companySize) {
+      case 'startup': return 'startup environment, small team, casual atmosphere, modern minimalist office';
+      case 'medium': return 'medium-sized company, organized workspace, professional but relaxed setting';
+      case 'large': return 'corporate office, structured environment, modern corporate interior, professional setting';
+      default: return '';
+    }
+  })() : '';
+
+  const locationImageContext = location ? (() => {
+    switch(location) {
+      case 'remote': return 'home office setup, cozy workspace, personal touches, comfortable home environment';
+      case 'moscow': return 'modern Moscow office, city views visible through windows';
+      case 'spb': return 'Saint Petersburg office, architectural details, European style';
+      default: return '';
+    }
+  })() : '';
+
+  const specializationImageContext = specialization ? `specialized for ${specialization}` : '';
+  
+  const contextualPromptAddition = [companySizeImageContext, locationImageContext, specializationImageContext]
+    .filter(Boolean)
+    .join(', ');
+  
   let prompts: string[];
   
   if (isITProfession) {
+    const baseContext = contextualPromptAddition ? `, ${contextualPromptAddition}` : '';
     prompts = [
-      `First-person view POV: ${profession} hands typing on mechanical keyboard, RGB backlight, dual monitors showing real code editor and terminal with commands, energy drink can, sticky notes with passwords on monitor frame, tangled cables, warm desk lamp light, 2am vibe, authentic programmer workspace chaos, ultrarealistic`,
-      `Extreme close-up: computer screen showing authentic ${profession} work - IDE with code, terminal logs scrolling, browser with Stack Overflow tabs, Slack message notifications popping, GitHub commits, blinking cursor, slight screen glare, coffee stain on desk visible in corner, person's tired reflection in screen, dim room lighting, cinematic`,
-      `Flat lay top-down: ${profession} messy workspace during active work - laptop covered with developer stickers (Linux, GitHub, etc), second monitor, mechanical keyboard, gaming mouse, smartphone showing work messages, open notebook with handwritten schemas and bugs, 3 coffee mugs, snack wrappers, USB cables everywhere, AirPods, smartwatch, afternoon natural light, authentic chaos`,
-      `Cinematic wide shot: ${profession} deep in flow state at night, wearing hoodie, side profile, face illuminated only by multiple monitor glow in dark room, messy hair, intense focused expression, can of energy drink in hand, pizza box on desk, headphones on, code visible on screens, moody cyberpunk aesthetic, realistic photography`,
+      `First-person view POV: ${profession} hands typing on mechanical keyboard, RGB backlight, dual monitors showing real code editor and terminal with commands, energy drink can, sticky notes with passwords on monitor frame, tangled cables, warm desk lamp light, 2am vibe, authentic programmer workspace chaos${baseContext}, ultrarealistic`,
+      `Extreme close-up: computer screen showing authentic ${profession} work - IDE with code, terminal logs scrolling, browser with Stack Overflow tabs, Slack message notifications popping, GitHub commits, blinking cursor, slight screen glare, coffee stain on desk visible in corner, person's tired reflection in screen, dim room lighting${baseContext}, cinematic`,
+      `Flat lay top-down: ${profession} messy workspace during active work - laptop covered with developer stickers (Linux, GitHub, etc), second monitor, mechanical keyboard, gaming mouse, smartphone showing work messages, open notebook with handwritten schemas and bugs, 3 coffee mugs, snack wrappers, USB cables everywhere, AirPods, smartwatch${baseContext}, afternoon natural light, authentic chaos`,
+      `Cinematic wide shot: ${profession} deep in flow state at night, wearing hoodie, side profile, face illuminated only by multiple monitor glow in dark room, messy hair, intense focused expression, can of energy drink in hand, pizza box on desk, headphones on, code visible on screens${baseContext}, moody cyberpunk aesthetic, realistic photography`,
     ];
   } else {
     // Генерируем детальные промпты с использованием AI для получения специфичных деталей профессии
     const professionDetails = await generateProfessionImageDetails(profession, professionDescription);
     
+    const baseContext = contextualPromptAddition ? `, ${contextualPromptAddition}` : '';
+    
     prompts = [
-      `First-person POV hands-on view: ${professionDetails.mainActivity}, ${professionDetails.specificTools} visible and in use, ${professionDetails.workplaceSetting}, ${professionDetails.professionalAttire}, authentic working moment, ${professionDetails.keyVisualElements}, natural lighting, realistic detail, candid photography style`,
-      `Close-up detail shot: ${professionDetails.toolsAndEquipment} being actively used by ${profession} professional, ${professionDetails.actionVerb} ${professionDetails.specificTask}, hands in action, ${professionDetails.materialDetails}, authentic wear and use marks, professional quality photography, natural daylight`,
-      `Overhead flat lay view: ${professionDetails.workspaceLayout} during active work shift, ${professionDetails.allToolsLaidOut}, work in progress visible, ${professionDetails.workDocuments}, authentic workspace organization, realistic professional equipment, natural daylight, detailed composition`,
-      `Cinematic environmental portrait: ${profession} professional in action at ${professionDetails.timeOfDay}, ${professionDetails.fullContextActivity}, ${professionDetails.surroundingEnvironment}, ${professionDetails.teamOrClients}, authentic workplace atmosphere, ${professionDetails.professionalAttire}, dynamic movement, realistic lighting, documentary photography style, capturing authentic professional moment`,
+      `First-person POV hands-on view: ${professionDetails.mainActivity}, ${professionDetails.specificTools} visible and in use, ${professionDetails.workplaceSetting}, ${professionDetails.professionalAttire}, authentic working moment, ${professionDetails.keyVisualElements}${baseContext}, natural lighting, realistic detail, candid photography style`,
+      `Close-up detail shot: ${professionDetails.toolsAndEquipment} being actively used by ${profession} professional, ${professionDetails.actionVerb} ${professionDetails.specificTask}, hands in action, ${professionDetails.materialDetails}, authentic wear and use marks${baseContext}, professional quality photography, natural daylight`,
+      `Overhead flat lay view: ${professionDetails.workspaceLayout} during active work shift, ${professionDetails.allToolsLaidOut}, work in progress visible, ${professionDetails.workDocuments}, authentic workspace organization${baseContext}, realistic professional equipment, natural daylight, detailed composition`,
+      `Cinematic environmental portrait: ${profession} professional in action at ${professionDetails.timeOfDay}, ${professionDetails.fullContextActivity}, ${professionDetails.surroundingEnvironment}, ${professionDetails.teamOrClients}, authentic workplace atmosphere, ${professionDetails.professionalAttire}${baseContext}, dynamic movement, realistic lighting, documentary photography style, capturing authentic professional moment`,
     ];
   }
 
@@ -526,13 +597,25 @@ export async function generateImages(
 // Получение статистики вакансий
 export async function fetchVacanciesStats(
   profession: string,
-  onProgress?: (message: string, progress: number) => void
+  onProgress?: (message: string, progress: number) => void,
+  location?: 'moscow' | 'spb' | 'other' | 'remote'
 ) {
   if (onProgress) onProgress('Получаю статистику вакансий...', 77);
   
+  // Определяем area ID для HH.ru API
+  // 113 - Россия, 1 - Москва, 2 - Санкт-Петербург
+  const areaId = location ? (() => {
+    switch(location) {
+      case 'moscow': return '1';
+      case 'spb': return '2';
+      case 'remote': return '113'; // Вся Россия, но будем фильтровать по schedule: remote
+      default: return '113'; // Вся Россия для "другой город"
+    }
+  })() : '113';
+  
   try {
     const response = await fetch(
-      `https://api.hh.ru/vacancies?text=${encodeURIComponent(profession)}&per_page=20&order_by=relevance&area=113`
+      `https://api.hh.ru/vacancies?text=${encodeURIComponent(profession)}&per_page=20&order_by=relevance&area=${areaId}${location === 'remote' ? '&schedule=remote' : ''}`
     );
     const data = await response.json();
     
@@ -640,7 +723,10 @@ export async function generateCard(
   level: string = "Middle",
   company: string = "стартап",
   onProgress?: (message: string, progress: number) => void,
-  professionDescription?: string // Уточненное описание профессии
+  professionDescription?: string, // Уточненное описание профессии
+  companySize?: 'startup' | 'medium' | 'large' | 'any',
+  location?: 'moscow' | 'spb' | 'other' | 'remote',
+  specialization?: string
 ) {
   const slug = transliterate(profession);
   
@@ -654,7 +740,7 @@ export async function generateCard(
   if (onProgress) onProgress('Начинаю генерацию...', 0);
   
   // 1. Генерация текстового контента
-  const data = await generateProfessionData(profession, level, company, onProgress);
+  const data = await generateProfessionData(profession, level, company, onProgress, companySize, location, specialization);
   
   // 2-4. Параллельная генерация изображений, статистики и видео
   if (onProgress) onProgress('Запускаю параллельную генерацию контента...', 30);
@@ -667,10 +753,10 @@ export async function generateCard(
         const totalProgress = 30 + (prog / 100) * 60;
         onProgress(msg, totalProgress);
       }
-    }, professionDescription), // Передаем уточненное описание
+    }, professionDescription, companySize, location, specialization), // Передаем все параметры
     fetchVacanciesStats(profession, () => {
       // Статистика быстрая, не отслеживаем прогресс отдельно
-    }),
+    }, location), // Передаем локацию для фильтрации вакансий
     fetchYouTubeVideos(profession, () => {
       // Видео быстрые, не отслеживаем прогресс отдельно
     }),
@@ -686,6 +772,10 @@ export async function generateCard(
     ...vacanciesStats,
     videos,
     generatedAt: new Date().toISOString(),
+    // Сохраняем контекстные параметры
+    companySize: companySize || undefined,
+    location: location || undefined,
+    specialization: specialization || undefined,
   };
 
   // 6. Сохраняем в кеш

@@ -55,5 +55,9 @@ export interface ProfessionData {
   images: string[];
   generatedAt: string;
   isIT?: boolean;
+  // Новые параметры для контекстной генерации
+  companySize?: 'startup' | 'medium' | 'large' | 'any';
+  location?: 'moscow' | 'spb' | 'other' | 'remote';
+  specialization?: string;
 }
 

@@ -17,7 +17,14 @@ if (typeof window === 'undefined') {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { profession, level = "Middle", company = "стартап" } = body;
+    const { 
+      profession, 
+      level = "Middle", 
+      company = "стартап",
+      companySize,
+      location,
+      specialization
+    } = body;
 
     if (!profession || typeof profession !== 'string') {
       return new Response(
@@ -67,7 +74,11 @@ export async function POST(request: NextRequest) {
             profession,
             level,
             company,
-            sendProgress
+            sendProgress,
+            undefined, // professionDescription
+            companySize,
+            location,
+            specialization
           );
 
           // Отправляем финальный результат
