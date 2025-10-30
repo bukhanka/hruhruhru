@@ -5,7 +5,6 @@ import { ChatRequest, ChatResponse, UserPersona, Message } from '@/types/chat';
 import fs from 'fs';
 import path from 'path';
 import { setupProxy } from '@/lib/proxy-config'; // Настройка прокси
-import { logger } from '@/lib/logger';
 import { 
   generateCard, 
   transliterate, 
@@ -1118,22 +1117,9 @@ ${professions.map((p, i) => `${i + 1}. "${p.profession}" -> slug: "${p.slug}" ($
 
 // Main handler
 export async function POST(request: NextRequest) {
-  return logger.time('CHAT_API', 'POST /api/chat', async () => {
-    try {
-      const body: ChatRequest = await request.json();
-      const { message, history, persona: currentPersona } = body;
-      
-      logger.info('CHAT_API', '📨 Получено сообщение в чат', {
-        messageLength: message.length,
-        historyLength: history.length,
-        hasPersona: !!currentPersona,
-        persona: currentPersona ? {
-          experience: currentPersona.experience,
-          companySize: currentPersona.companySize,
-          location: currentPersona.location,
-          isUncertain: currentPersona.isUncertain,
-        } : null,
-      });
+  try {
+    const body: ChatRequest = await request.json();
+    const { message, history, persona: currentPersona } = body;
 
     // Шаг 0: Если это первое сообщение - показываем приветствие с выбором сценария
     if (history.length === 0) {
@@ -1154,29 +1140,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Step 1: Parse intent
-    const intent = await logger.time('CHAT_API', 'parseIntent', () => 
-      parseIntent(message, history)
-    );
-    
-    logger.info('CHAT_API', '🎯 Intent определен', {
-      intent: intent.intent,
-      confidence: intent.confidence,
-      extractedInfo: intent.extractedInfo,
-    });
+    const intent = await parseIntent(message, history);
 
     // Step 2: Detect/update persona
-    const persona = await logger.time('CHAT_API', 'detectPersona', () => 
-      detectPersona(message, history, currentPersona || null)
-    );
-    
-    logger.debug('CHAT_API', '👤 Persona обновлена', {
-      persona: {
-        experience: persona.experience,
-        companySize: persona.companySize,
-        location: persona.location,
-        isUncertain: persona.isUncertain,
-      },
-    });
+    const persona = await detectPersona(message, history, currentPersona || null);
 
     // Step 3: Проверяем контекст предыдущего сообщения
     const lastAssistantMessage = history
@@ -1758,34 +1725,17 @@ export async function POST(request: NextRequest) {
           const company = companyMap[persona.companySize || 'any'] || 'IT-компания';
           
           // Генерируем карточку с учетом всех параметров
-          logger.info('CHAT_API', '🎨 Запуск генерации карточки из чата', {
-            profession: professionForClarification,
+          const generatedCard = await generateCard(
+            professionForClarification,
             level,
             company,
-            companySize: persona.companySize,
-            location: persona.location,
-            specialization: persona.specialization,
-          });
-          
-          const generatedCard = await logger.time('CHAT_API', 'generateCard from chat', () =>
-            generateCard(
-              professionForClarification,
-              level,
-              company,
-              {
-                companySize: persona.companySize,
-                location: persona.location,
-                specialization: persona.specialization,
-                professionDescription: lastAssistantMessage?.metadata?.professionDescription,
-              }
-            )
+            {
+              companySize: persona.companySize,
+              location: persona.location,
+              specialization: persona.specialization,
+              professionDescription: lastAssistantMessage?.metadata?.professionDescription,
+            }
           );
-          
-          logger.info('CHAT_API', '✅ Карточка сгенерирована из чата', {
-            profession: professionForClarification,
-            slug: generatedCard.slug,
-            imagesCount: generatedCard.images?.length || 0,
-          });
           
         responseMessage = {
           type: 'cards',
@@ -1979,26 +1929,19 @@ export async function POST(request: NextRequest) {
       responseMessage.content = 'Как я могу помочь?';
     }
 
-      const chatResponse: ChatResponse = {
-        message: responseMessage,
-        persona,
-        stage,
-      };
+    const chatResponse: ChatResponse = {
+      message: responseMessage,
+      persona,
+      stage,
+    };
 
-      logger.info('CHAT_API', '✅ Ответ чата готов', {
-        responseType: responseMessage.type,
-        stage,
-        hasButtons: !!responseMessage.buttons?.length,
-        hasCards: !!responseMessage.cards?.length,
-      });
-
-      return NextResponse.json(chatResponse);
-    }, {
-      messageLength: message.length,
-      historyLength: history.length,
-    });
+    return NextResponse.json(chatResponse);
   } catch (error: any) {
-    logger.error('CHAT_API', '❌ Ошибка в POST /api/chat', error, {
+    console.error('Chat API error:', error);
+    console.error('Error details:', {
+      message: error?.message,
+      stack: error?.stack,
+      name: error?.name,
       HTTP_PROXY: process.env.HTTP_PROXY ? 'настроен' : 'не настроен',
       HTTPS_PROXY: process.env.HTTPS_PROXY ? 'настроен' : 'не настроен',
     });

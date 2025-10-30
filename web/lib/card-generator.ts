@@ -2,7 +2,6 @@ import { GoogleGenAI, Type } from "@google/genai";
 import * as fs from "fs";
 import * as path from "path";
 import "./proxy-config"; // Настройка прокси
-import { logger } from "./logger";
 
 // Инициализация клиента Google AI
 let aiClient: GoogleGenAI | null = null;
@@ -176,26 +175,12 @@ export async function generateProfessionData(
   location?: 'moscow' | 'spb' | 'other' | 'remote',
   specialization?: string
 ) {
-  return logger.time('CARD_GEN', 'generateProfessionData', async () => {
-    logger.info('CARD_GEN', '🎯 Начало генерации данных профессии', {
-      profession,
-      level,
-      company,
-      companySize,
-      location,
-      specialization,
-    });
-
-    if (onProgress) onProgress('Определяю тип профессии...', 5);
-    
-    // Определяем тип профессии
-    const isIT = await logger.time('CARD_GEN', 'determineProfessionType', () => 
-      determineProfessionType(profession)
-    );
-    
-    logger.info('CARD_GEN', `📋 Тип профессии определен: ${isIT ? 'IT' : 'Non-IT'}`);
-    
-    if (onProgress) onProgress('Генерирую текстовый контент...', 10);
+  if (onProgress) onProgress('Определяю тип профессии...', 5);
+  
+  // Определяем тип профессии
+  const isIT = await determineProfessionType(profession);
+  
+  if (onProgress) onProgress('Генерирую текстовый контент...', 10);
 
   const stackLabel = isIT ? 'стек технологий' : 'рабочие навыки и инструменты';
   const stackDescription = isIT 
@@ -350,55 +335,30 @@ ${!isIT ? `
 
   const ai = getAIClient();
   
-  return await logger.time('CARD_GEN', 'AI generateContent (profession data)', async () => {
-    return await withRetry(async () => {
-      try {
-        logger.debug('CARD_GEN', 'Отправка запроса к AI для генерации данных профессии', {
-          promptLength: prompt.length,
-          model: 'gemini-2.0-flash',
-        });
-
-        const response = await ai.models.generateContent({
-          model: "gemini-2.0-flash",
-          contents: prompt,
-          config: {
-            temperature: 0.9,
-            responseMimeType: "application/json",
-            responseSchema: responseSchema,
-          },
-        });
-        
-        const jsonText = response.text || '{}';
-        if (onProgress) onProgress('Текстовый контент готов ✅', 30);
-        
-        const data = JSON.parse(jsonText);
-        // Добавляем флаг isIT к данным
-        data.isIT = isIT;
-        
-        logger.info('CARD_GEN', '✅ Текстовый контент сгенерирован', {
-          scheduleItems: data.schedule?.length || 0,
-          stackItems: data.stack?.length || 0,
-          benefitsItems: data.benefits?.length || 0,
-          careerPathItems: data.careerPath?.length || 0,
-        });
-        
-        return data;
-      } catch (error: any) {
-        // Пробрасываем ошибку через extractErrorMessage для корректной обработки
-        const errorMessage = extractErrorMessage(error);
-        logger.error('CARD_GEN', 'Ошибка генерации текстового контента', error);
-        throw new Error(errorMessage);
-      }
-    }, 3, 2000);
-  });
-  }, {
-    profession,
-    level,
-    company,
-    companySize,
-    location,
-    specialization,
-  });
+  return await withRetry(async () => {
+    try {
+      const response = await ai.models.generateContent({
+        model: "gemini-2.0-flash",
+        contents: prompt,
+        config: {
+          temperature: 0.9,
+          responseMimeType: "application/json",
+          responseSchema: responseSchema,
+        },
+      });
+      
+      const jsonText = response.text || '{}';
+      if (onProgress) onProgress('Текстовый контент готов ✅', 30);
+      const data = JSON.parse(jsonText);
+      // Добавляем флаг isIT к данным
+      data.isIT = isIT;
+      return data;
+    } catch (error: any) {
+      // Пробрасываем ошибку через extractErrorMessage для корректной обработки
+      const errorMessage = extractErrorMessage(error);
+      throw new Error(errorMessage);
+    }
+  }, 3, 2000);
 }
 
 // Генерация детальных описаний профессии для промптов изображений
@@ -576,13 +536,6 @@ export async function generateImages(
   // Распараллеливаем генерацию всех изображений одновременно
   if (onProgress) onProgress('Генерирую изображения параллельно...', 35);
   
-  logger.info('IMAGE_GEN', `🖼️  Начало параллельной генерации ${prompts.length} изображений`, {
-    profession,
-    slug,
-    isITProfession,
-  });
-  
-  const startTime = Date.now();
   const imagePromises = prompts.map(async (prompt, index) => {
     try {
       const imagePath = await withRetry(async () => {
@@ -643,15 +596,6 @@ export async function generateImages(
   const images = imageResults
     .sort((a, b) => a.index - b.index)
     .map(img => img.path);
-
-  const totalTime = Date.now() - startTime;
-  logger.info('IMAGE_GEN', `✅ Все ${images.length} изображений сгенерированы параллельно`, {
-    profession,
-    slug,
-    totalTime: `${totalTime}ms`,
-    avgTimePerImage: `${(totalTime / images.length).toFixed(0)}ms`,
-    images: images.map(img => img.split('/').pop()),
-  });
 
   if (onProgress) onProgress('Все изображения готовы ✅', 75);
   return images;
@@ -1078,22 +1022,12 @@ export async function generateBaseCard(
     slug = `${slug}-${paramsParts.join('-')}`;
   }
   
-  return logger.time('CARD_GEN', 'generateBaseCard (fast)', async () => {
-    logger.info('CARD_GEN', '⚡ Начало быстрой генерации базовой карточки', {
-      profession,
-      level,
-      company,
-      companySize,
-      location,
-      specialization,
-    });
-
-    if (onProgress) onProgress('Генерирую базовую карточку...', 0);
-    
-    // Генерируем только текстовый контент (быстро)
-    const data = await generateProfessionData(profession, level, company, onProgress, companySize, location, specialization);
-    
-    if (onProgress) onProgress('Генерирую первое изображение...', 50);
+  if (onProgress) onProgress('Генерирую базовую карточку...', 0);
+  
+  // Генерируем только текстовый контент (быстро)
+  const data = await generateProfessionData(profession, level, company, onProgress, companySize, location, specialization);
+  
+  if (onProgress) onProgress('Генерирую первое изображение...', 50);
   
   // Генерируем только первое изображение для быстрого показа
   let firstImage = null;
@@ -1128,37 +1062,20 @@ export async function generateBaseCard(
   // Получаем базовую статистику вакансий (быстро)
   const vacanciesStats = await fetchVacanciesStats(profession, undefined, location);
   
-    if (onProgress) onProgress('Базовая карточка готова ✅', 100);
-    
-    const baseCard = {
-      ...data,
-      slug,
-      images: firstImage ? [firstImage] : [],
-      ...vacanciesStats,
-      videos: [],
-      isPartial: true, // Флаг что это частичная карточка
-      generatedAt: new Date().toISOString(),
-      companySize: companySize || undefined,
-      location: location || undefined,
-      specialization: specialization || undefined,
-    };
-    
-    logger.info('CARD_GEN', '⚡ Базовая карточка готова', {
-      profession,
-      slug,
-      hasImage: !!firstImage,
-      scheduleItems: data.schedule?.length || 0,
-    });
-    
-    return baseCard;
-  }, {
-    profession,
-    level,
-    company,
-    companySize,
-    location,
-    specialization,
-  });
+  if (onProgress) onProgress('Базовая карточка готова ✅', 100);
+  
+  return {
+    ...data,
+    slug,
+    images: firstImage ? [firstImage] : [],
+    ...vacanciesStats,
+    videos: [],
+    isPartial: true, // Флаг что это частичная карточка
+    generatedAt: new Date().toISOString(),
+    companySize: companySize || undefined,
+    location: location || undefined,
+    specialization: specialization || undefined,
+  };
 }
 
 // Основная функция генерации карточки
@@ -1175,28 +1092,17 @@ export async function generateCard(
     specialization?: string;
   }
 ) {
-  return logger.time('CARD_GEN', 'generateCard (full)', async () => {
-    const { 
-      generateAudio = false,
-      onProgress,
-      professionDescription,
-      companySize,
-      location,
-      specialization
-    } = options || {};
-    
-    logger.info('CARD_GEN', '🎨 Начало полной генерации карточки', {
-      profession,
-      level,
-      company,
-      companySize,
-      location,
-      specialization,
-      generateAudio,
-    });
-    
-    // Формируем slug с учетом параметров пользователя для уникальности карточки
-    let slug = transliterate(profession);
+  const { 
+    generateAudio = false,
+    onProgress,
+    professionDescription,
+    companySize,
+    location,
+    specialization
+  } = options || {};
+  
+  // Формируем slug с учетом параметров пользователя для уникальности карточки
+  let slug = transliterate(profession);
   
   // Если есть специфичные параметры, добавляем их к slug для создания уникальной карточки
   const paramsParts: string[] = [];
@@ -1232,13 +1138,6 @@ export async function generateCard(
   
   // 2-5. Параллельная генерация всего остального одновременно
   // Изображения, статистика, видео и карьерное дерево генерируются параллельно
-  logger.info('CARD_GEN', '🚀 Запуск параллельной генерации контента', {
-    profession,
-    slug,
-    parallelTasks: 4,
-  });
-  
-  const parallelStartTime = Date.now();
   const [images, vacanciesStats, videos, careerTreeResult] = await Promise.allSettled([
     generateImages(profession, slug, (msg, prog) => {
       if (onProgress) {
@@ -1284,24 +1183,10 @@ export async function generateCard(
   ]);
   
   // Обрабатываем результаты
-  const parallelDuration = Date.now() - parallelStartTime;
   const finalImages = images.status === 'fulfilled' ? images.value : [];
   const finalVacanciesStats = vacanciesStats.status === 'fulfilled' ? vacanciesStats.value : { vacancies: 0, competition: 'неизвестно', avgSalary: null, topCompanies: [] };
   const finalVideos = videos.status === 'fulfilled' ? videos.value : [];
   const finalCareerTree = careerTreeResult.status === 'fulfilled' ? careerTreeResult.value : null;
-  
-  logger.info('CARD_GEN', '✅ Параллельная генерация завершена', {
-    profession,
-    slug,
-    duration: `${parallelDuration}ms`,
-    images: finalImages.length,
-    videos: finalVideos.length,
-    hasCareerTree: !!finalCareerTree,
-    imagesStatus: images.status,
-    vacanciesStatus: vacanciesStats.status,
-    videosStatus: videos.status,
-    careerTreeStatus: careerTreeResult.status,
-  });
   
   if (onProgress) onProgress('Завершаю генерацию...', 80);
   
@@ -1351,28 +1236,12 @@ export async function generateCard(
     specialization: specialization || undefined,
   };
 
-    // 8. Сохраняем в кеш
-    await logger.time('CARD_GEN', 'saveCardToCache', () => 
-      saveCardToCache(fullData, slug)
-    );
-    
-    logger.info('CARD_GEN', '🎉 Полная генерация карточки завершена', {
-      profession,
-      slug,
-      imagesCount: fullData.images?.length || 0,
-      videosCount: fullData.videos?.length || 0,
-      hasCareerTree: !!fullData.careerTree,
-      hasAudio: !!fullData.audio,
-    });
-    
-    if (onProgress) onProgress('Генерация завершена! ✅', 100);
-    
-    return fullData;
-  }, {
-    profession,
-    level,
-    company,
-  });
+  // 8. Сохраняем в кеш
+  await saveCardToCache(fullData, slug);
+  
+  if (onProgress) onProgress('Генерация завершена! ✅', 100);
+  
+  return fullData;
 }
 
 // Генерация уточняющих вопросов о профессии
