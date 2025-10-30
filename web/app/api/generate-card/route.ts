@@ -23,7 +23,8 @@ export async function POST(request: NextRequest) {
       company = "стартап",
       companySize,
       location,
-      specialization
+      specialization,
+      generateAudio = false
     } = body;
 
     if (!profession || typeof profession !== 'string') {
@@ -74,11 +75,10 @@ export async function POST(request: NextRequest) {
             profession,
             level,
             company,
-            sendProgress,
-            undefined, // professionDescription
-            companySize,
-            location,
-            specialization
+            {
+              generateAudio,
+              onProgress: sendProgress
+            }
           );
 
           // Отправляем финальный результат

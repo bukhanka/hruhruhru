@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, use, type ReactNode } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
+import TimelineAudioPlayer from '@/components/TimelineAudioPlayer';
 
 const tabs = [
   { id: 'overview', label: 'Обзор', emoji: '👀' },
@@ -18,7 +19,7 @@ type ProfessionData = {
   images?: string[];
   benefits?: { icon: string; text: string }[];
   dialog?: { message: string; options?: string[]; response: string };
-  schedule?: { time: string; title: string; description: string; detail?: string; emoji?: string }[];
+  schedule?: { time: string; title: string; description: string; detail?: string; emoji?: string; soundId?: string }[];
   stack?: string[];
   skills?: { name: string; level: number }[];
   careerPath?: { level: string; years: string; salary: string }[];
@@ -146,12 +147,6 @@ export default function ProfessionPage({ params }: { params: Promise<{ id: strin
             >
               ←
             </Link>
-            <button
-              onClick={() => setSoundPlaying((prev) => !prev)}
-              className="flex items-center gap-2 rounded-full bg-white/15 px-4 py-2 text-sm font-medium backdrop-blur-md transition active:scale-95"
-            >
-              {soundPlaying ? '🔊 Погружаемся' : '🎧 Включить атмосферу'}
-            </button>
           </div>
 
           <div className="space-y-3">
@@ -280,18 +275,35 @@ export default function ProfessionPage({ params }: { params: Promise<{ id: strin
                 {data.schedule?.map((item, index) => {
                   const isOpen = selectedTime === index;
                   return (
-                    <button key={`${item.time}-${index}`} onClick={() => setSelectedTime(isOpen ? null : index)} className="w-full text-left">
+                    <div key={`${item.time}-${index}`} className="w-full">
                       <div className="flex items-start gap-4 rounded-2xl border border-hh-gray-200 bg-white px-4 py-3 transition hover:border-hh-red">
                         <span className="text-3xl">{item.emoji}</span>
                         <div className="flex-1">
                           <div className="flex items-center justify-between gap-4">
-                            <div>
+                            <button 
+                              onClick={() => setSelectedTime(isOpen ? null : index)} 
+                              className="flex-1 text-left"
+                            >
                               <p className="font-mono text-xs font-semibold uppercase tracking-wider text-text-secondary">
                                 {item.time}
                               </p>
                               <h3 className="mt-1 text-base font-semibold text-text-primary">{item.title}</h3>
+                            </button>
+                            <div className="flex items-center gap-2">
+                              {/* Аудио плеер для этого этапа дня */}
+                              {item.soundId && (
+                                <TimelineAudioPlayer 
+                                  slug={id} 
+                                  soundId={item.soundId}
+                                />
+                              )}
+                              <button
+                                onClick={() => setSelectedTime(isOpen ? null : index)}
+                                className="text-xl text-text-secondary hover:text-hh-red"
+                              >
+                                {isOpen ? '▲' : '▼'}
+                              </button>
                             </div>
-                            <span className="text-xl text-text-secondary">{isOpen ? '▲' : '▼'}</span>
                           </div>
                           <p className="mt-2 text-sm text-text-secondary">{item.description}</p>
                           {isOpen && item.detail && (
@@ -299,7 +311,7 @@ export default function ProfessionPage({ params }: { params: Promise<{ id: strin
                           )}
                         </div>
                       </div>
-                    </button>
+                    </div>
                   );
                 })}
               </div>

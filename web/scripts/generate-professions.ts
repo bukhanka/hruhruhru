@@ -14,6 +14,10 @@ const ai = new GoogleGenAI({
   apiKey: process.env.GOOGLE_API_KEY!,
 });
 
+// Парсим аргументы командной строки
+const args = process.argv.slice(2);
+const WITH_AUDIO = args.includes('--with-audio') || args.includes('--audio');
+
 // Список профессий для генерации (3 штуки по требованиям хакатона)
 const professions = [
   { name: "DevOps Engineer", level: "Middle", company: "стартап" },
@@ -53,12 +57,19 @@ async function generateProfessionData(profession: string, level: string, company
 
 ВАЖНЫЕ ТРЕБОВАНИЯ:
 - schedule: ровно 6 событий за рабочий день (с 10:00 до 18:00)
+  * Для КАЖДОГО события создай audioPrompt - детальный промпт для генерации ASMR-звука
+  * audioPrompt должен быть на английском языке для ElevenLabs API
+  * audioPrompt должен описывать приятные, расслабляющие звуки этого момента (ASMR-стиль)
+  * Включи в audioPrompt: конкретные звуки инструментов, голоса, фоновую атмосферу
+  * Примеры качественных промптов:
+    - "Pleasant ASMR coffee shop morning: espresso machine steaming milk, gentle cups clinking, soft friendly barista voice, warm cozy ambience, crisp spatial audio"
+    - "Satisfying ASMR coding session: rhythmic mechanical keyboard typing Cherry MX switches, soft mouse clicks, gentle focused breathing, peaceful concentration, premium binaural quality"
 - stack: 8-10 технологий/инструментов конкретно для этой профессии
 - benefits: ровно 4 пункта с конкретными цифрами и метриками
 - careerPath: ровно 4 этапа карьеры с реальными зарплатами в рублях
 - skills: ровно 5 ключевых скиллов с уровнем от 40 до 90
 - dialog: реалистичный диалог с коллегой/клиентом
-- Всё на русском языке
+- Всё на русском языке (кроме audioPrompt)
 - Эмоционально, живо, с деталями атмосферы
 - Используй разные эмодзи для каждого события в schedule
 - В description используй цитаты или короткие фразы из рабочего процесса
@@ -81,8 +92,9 @@ async function generateProfessionData(profession: string, level: string, company
             emoji: { type: Type.STRING },
             description: { type: Type.STRING },
             detail: { type: Type.STRING },
+            audioPrompt: { type: Type.STRING }, // Промпт для генерации звука через ElevenLabs
           },
-          required: ["time", "title", "emoji", "description", "detail"],
+          required: ["time", "title", "emoji", "description", "detail", "audioPrompt"],
         },
       },
       stack: {
@@ -141,7 +153,7 @@ async function generateProfessionData(profession: string, level: string, company
 
   return await withRetry(async () => {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-2.0-flash",
       contents: prompt,
       config: {
         temperature: 0.9,
@@ -211,7 +223,7 @@ async function generateImages(profession: string, slug: string) {
     try {
       const imagePath = await withRetry(async () => {
         const response = await ai.models.generateImages({
-          model: 'imagen-4.0-fast-generate-001', // Быстрая модель для хакатона
+          model: 'imagen-3.0-generate-002', // Быстрая модель для хакатона
           prompt: prompts[i],
           config: {
             numberOfImages: 1,
@@ -377,6 +389,58 @@ async function fetchVacanciesStats(profession: string) {
   }
 }
 
+// Генерация звуков через ElevenLabs API (опционально)
+async function generateAudio(slug: string, schedule: any[]) {
+  console.log(`  🎧 Генерирую звуковые эффекты для ${schedule.length} событий...`);
+  
+  if (!process.env.ELEVENLABS_API_KEY) {
+    console.log(`    ⚠ ELEVENLABS_API_KEY не найден, пропускаю генерацию звуков`);
+    console.log(`    💡 Добавьте ELEVENLABS_API_KEY в .env.local для генерации звуков`);
+    return null;
+  }
+  
+  try {
+    // Импортируем audio-generator динамически
+    const { generateSoundEffect, saveSoundToFile } = await import('../lib/audio-generator');
+    
+    const timelineSounds: Array<{ id: string; timeSlot: string; url: string }> = [];
+    
+    // Генерируем звуки используя промпты из LLM
+    for (let i = 0; i < schedule.length; i++) {
+      const scheduleItem = schedule[i];
+      const soundId = `timeline-${scheduleItem.time.replace(':', '-')}`;
+      
+      console.log(`    Генерирую звук ${i + 1}/${schedule.length}: ${scheduleItem.title}...`);
+      
+      try {
+        // Используем промпт, сгенерированный LLM
+        const audioBlob = await generateSoundEffect(
+          scheduleItem.audioPrompt || `Pleasant ambient sound for ${scheduleItem.title}`,
+          10, // duration
+          false
+        );
+        
+        const url = await saveSoundToFile(audioBlob, slug, soundId);
+        timelineSounds.push({ id: soundId, timeSlot: scheduleItem.time, url });
+        
+        console.log(`    ✓ ${scheduleItem.time} - ${scheduleItem.title}`);
+        
+        // Задержка между запросами
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      } catch (error: any) {
+        console.error(`    ✗ Ошибка: ${scheduleItem.time} - ${scheduleItem.title}:`, error.message);
+      }
+    }
+    
+    console.log(`    ✓ Звуки сгенерированы: ${timelineSounds.length} звуков для timeline`);
+    
+    return { timelineSounds };
+  } catch (error: any) {
+    console.error(`    ✗ Ошибка генерации звуков:`, error.message);
+    return null;
+  }
+}
+
 // Функция транслитерации для slug
 function transliterate(text: string): string {
   const translitMap: Record<string, string> = {
@@ -422,13 +486,38 @@ async function generateOneProfession(
       fetchYouTubeVideos(prof.name),
     ]);
     
-    // 5. Объединяем всё в один объект
+    // 5. Генерация звуков (если указан флаг --with-audio)
+    let audioData = null;
+    if (WITH_AUDIO) {
+      audioData = await generateAudio(slug, data.schedule);
+      
+      // Привязываем звуки к событиям schedule по индексу
+      if (audioData && audioData.timelineSounds) {
+        data.schedule = data.schedule.map((scheduleItem: any, index: number) => {
+          const sound = audioData.timelineSounds[index];
+          
+          if (sound) {
+            return {
+              ...scheduleItem,
+              soundId: sound.id,
+            };
+          }
+          
+          return scheduleItem;
+        });
+        
+        console.log(`  🎧 Привязал ${audioData.timelineSounds.length} звуков к событиям schedule`);
+      }
+    }
+    
+    // 6. Объединяем всё в один объект
     const fullData = {
       ...data,
       slug,
       images,
       ...vacanciesStats,
       videos,
+      ...(audioData ? { audio: audioData } : {}),
       generatedAt: new Date().toISOString(),
     };
 
@@ -452,7 +541,8 @@ async function generateAll() {
   
   console.log('\n🚀 Начинаем ПАРАЛЛЕЛЬНУЮ генерацию профессий...\n');
   console.log(`Всего профессий: ${professions.length}`);
-  console.log(`Режим: все профессии генерируются одновременно\n`);
+  console.log(`Режим: все профессии генерируются одновременно`);
+  console.log(`Генерация звуков: ${WITH_AUDIO ? '✓ ВКЛЮЧЕНА (--with-audio)' : '✗ Выключена (добавьте --with-audio)'}\n`);
   
   if (!process.env.GOOGLE_API_KEY) {
     console.error('❌ ОШИБКА: Не найден GOOGLE_API_KEY в .env.local');
@@ -496,6 +586,12 @@ async function generateAll() {
   
   if (successfulResults.length > 0) {
     console.log('\n💡 Теперь можно запустить: npm run dev');
+    
+    if (!WITH_AUDIO) {
+      console.log('\n🎧 Хотите добавить звуковые эффекты?');
+      console.log('   Запустите: npm run generate -- --with-audio');
+      console.log('   (Требуется ELEVENLABS_API_KEY в .env.local)');
+    }
   }
 }
 

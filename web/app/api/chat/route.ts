@@ -96,7 +96,7 @@ ${history.slice(-3).map((m) => `${m.role}: ${m.content}`).join('\n')}
 
   try {
     const response = await getAIClient().models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-2.0-flash',
       contents: prompt,
       config: {
         temperature: 0.3,
@@ -148,7 +148,7 @@ ${history.slice(-5).map((m) => `${m.role}: ${m.content}`).join('\n')}
 
   try {
     const response = await getAIClient().models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-2.0-flash',
       contents: prompt,
       config: {
         temperature: 0.3,
@@ -205,7 +205,7 @@ async function generateSpecializationQuestion(profession: string): Promise<{ con
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-2.0-flash',
       contents: prompt,
       config: {
         temperature: 0.7,
@@ -283,7 +283,7 @@ ${persona.isUncertain ? `
 
   try {
     const response = await getAIClient().models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-2.0-flash',
       contents: prompt,
       config: {
         temperature: 0.7,
@@ -344,7 +344,7 @@ ${professions.map((p, i) => `${i + 1}. ${p.profession} (${p.level})`).join('\n')
 
   try {
     const response = await getAIClient().models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-2.0-flash',
       contents: prompt,
       config: {
         temperature: 0.5,
@@ -486,7 +486,7 @@ ${professions.map((p, i) => `${i + 1}. "${p.profession}" -> slug: "${p.slug}" ($
 
   try {
     const response = await getAIClient().models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-2.0-flash',
       contents: prompt,
       config: {
         temperature: 0.3,
@@ -798,7 +798,7 @@ export async function POST(request: NextRequest) {
 Ответь коротко и по-дружески. Направь разговор к обсуждению карьеры.`;
 
       const response = await getAIClient().models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-2.0-flash',
         contents: prompt,
         config: { temperature: 0.8 },
       });

@@ -104,7 +104,7 @@ IT-профессии связаны с разработкой программ�
 }`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-2.0-flash',
       contents: prompt,
       config: {
         temperature: 0.3,
@@ -338,7 +338,7 @@ ${!isIT ? `
   return await withRetry(async () => {
     try {
       const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
+        model: "gemini-2.0-flash",
         contents: prompt,
         config: {
           temperature: 0.9,
@@ -411,7 +411,7 @@ async function generateProfessionImageDetails(
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-2.0-flash',
       contents: prompt,
       config: {
         temperature: 0.5,
@@ -543,7 +543,7 @@ export async function generateImages(
       const imagePath = await withRetry(async () => {
         try {
           const response = await ai.models.generateImages({
-            model: 'imagen-4.0-fast-generate-001',
+            model: 'imagen-3.0-generate-002',
             prompt: prompts[i],
             config: {
               numberOfImages: 1,
@@ -722,12 +722,24 @@ export async function generateCard(
   profession: string,
   level: string = "Middle",
   company: string = "стартап",
-  onProgress?: (message: string, progress: number) => void,
-  professionDescription?: string, // Уточненное описание профессии
-  companySize?: 'startup' | 'medium' | 'large' | 'any',
-  location?: 'moscow' | 'spb' | 'other' | 'remote',
-  specialization?: string
+  options?: {
+    generateAudio?: boolean;
+    onProgress?: (message: string, progress: number) => void;
+    professionDescription?: string;
+    companySize?: 'startup' | 'medium' | 'large' | 'any';
+    location?: 'moscow' | 'spb' | 'other' | 'remote';
+    specialization?: string;
+  }
 ) {
+  const { 
+    generateAudio = false,
+    onProgress,
+    professionDescription,
+    companySize,
+    location,
+    specialization
+  } = options || {};
+  
   const slug = transliterate(profession);
   
   // Проверяем кеш
@@ -749,8 +761,8 @@ export async function generateCard(
   const [images, vacanciesStats, videos] = await Promise.all([
     generateImages(profession, slug, (msg, prog) => {
       if (onProgress) {
-        // Прогресс: 30% (текст) + до 60% (изображения) = 30-90%
-        const totalProgress = 30 + (prog / 100) * 60;
+        // Прогресс: 30% (текст) + до 50% (изображения) = 30-80%
+        const totalProgress = 30 + (prog / 100) * 50;
         onProgress(msg, totalProgress);
       }
     }, professionDescription, companySize, location, specialization), // Передаем все параметры
@@ -762,15 +774,46 @@ export async function generateCard(
     }),
   ]);
   
-  if (onProgress) onProgress('Завершаю генерацию...', 95);
+  if (onProgress) onProgress('Завершаю генерацию...', 80);
   
-  // 5. Объединяем всё в один объект
+  // 5. Генерация звуков (опционально)
+  let audioData = null;
+  if (generateAudio) {
+    try {
+      if (onProgress) onProgress('Генерирую звуковые эффекты...', 85);
+      
+      // Импортируем audio-generator динамически
+      const { generateProfessionAudio, checkCachedAudio } = await import('./audio-generator');
+      
+      const hasAudio = await checkCachedAudio(slug);
+      if (!hasAudio) {
+        audioData = await generateProfessionAudio(slug, (msg, prog) => {
+          if (onProgress) {
+            // Прогресс: 85% + до 10% (звуки) = 85-95%
+            const totalProgress = 85 + (prog / 100) * 10;
+            onProgress(msg, totalProgress);
+          }
+        });
+      } else {
+        if (onProgress) onProgress('Звуки уже сгенерированы ✅', 95);
+      }
+    } catch (error: any) {
+      console.error('Error generating audio:', error.message);
+      // Не прерываем генерацию из-за звуков
+      if (onProgress) onProgress('⚠️ Ошибка генерации звуков, продолжаем...', 95);
+    }
+  }
+  
+  if (onProgress) onProgress('Финализирую...', 95);
+  
+  // 6. Объединяем всё в один объект
   const fullData = {
     ...data,
     slug,
     images,
     ...vacanciesStats,
     videos,
+    ...(audioData ? { audio: audioData } : {}),
     generatedAt: new Date().toISOString(),
     // Сохраняем контекстные параметры
     companySize: companySize || undefined,
@@ -778,7 +821,7 @@ export async function generateCard(
     specialization: specialization || undefined,
   };
 
-  // 6. Сохраняем в кеш
+  // 7. Сохраняем в кеш
   await saveCardToCache(fullData, slug);
   
   if (onProgress) onProgress('Генерация завершена! ✅', 100);
@@ -820,7 +863,7 @@ ${conversationContext}
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-2.0-flash',
       contents: prompt,
       config: {
         temperature: 0.7,
@@ -874,7 +917,7 @@ ${conversationContext}
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-2.0-flash',
       contents: prompt,
       config: {
         temperature: 0.3,

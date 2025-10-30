@@ -4,6 +4,8 @@ export interface ScheduleItem {
   emoji: string;
   description: string;
   detail: string;
+  audioPrompt?: string; // Промпт для генерации звука (генерируется LLM)
+  soundId?: string; // ID звука для этого этапа дня
 }
 
 export interface Benefit {
