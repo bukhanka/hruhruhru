@@ -28,6 +28,7 @@ export interface UserPersona {
   currentRole?: string;
   goals?: string[];
   isUncertain?: boolean;
+  skills?: string[]; // Навыки пользователя
   // Новые параметры для уточнения профессии
   companySize?: 'startup' | 'medium' | 'large' | 'any'; // Размер компании
   location?: 'moscow' | 'spb' | 'other' | 'remote'; // Локация работы
@@ -55,8 +56,17 @@ export interface ChatRequest {
   persona?: UserPersona;
 }
 
+// Тип для ответного сообщения от API (без id, role, timestamp - они добавляются на клиенте)
+export interface ResponseMessage {
+  type: MessageType;
+  content: string;
+  buttons?: string[];
+  cards?: ProfessionCard[];
+  metadata?: Record<string, any>;
+}
+
 export interface ChatResponse {
-  message: Message;
+  message: ResponseMessage;
   persona?: UserPersona;
   stage?: ChatState['conversationStage'];
 }

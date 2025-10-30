@@ -409,25 +409,96 @@ async function compareProfessions(profession1: string, profession2: string): Pro
   }
 }
 
-// Показать похожие профессии
-async function showSimilarProfessions(profession: string): Promise<{ content: string; cards: any[] }> {
+// Показать похожие профессии (с использованием HH API + LLM)
+async function showSimilarProfessions(
+  profession: string,
+  context?: {
+    level?: string;
+    skills?: string[];
+    interests?: string[];
+  }
+): Promise<{ content: string; cards: any[] }> {
   const ai = getAIClient();
   const professions = getAvailableProfessions();
   
+  // Шаг 1: Получаем похожие профессии из HH API
+  let hhProfessions: any[] = [];
+  try {
+    // Ищем профессии с похожими навыками
+    const response = await fetch(
+      `https://api.hh.ru/vacancies?text=${encodeURIComponent(profession)}&per_page=30&area=113&order_by=relevance`,
+      { headers: { 'User-Agent': 'HH-Vibe-Career-App/1.0' } }
+    );
+    
+    if (response.ok) {
+      const data = await response.json();
+      
+      // Извлекаем профессии из вакансий
+      const professionsMap = new Map<string, number>();
+      data.items?.forEach((vacancy: any) => {
+        if (!vacancy.name) return;
+        
+        let professionName = vacancy.name
+          .replace(/\(.*?\)/g, '')
+          .replace(/\s*в\s+компани[юи].*$/i, '')
+          .replace(/\s*-\s*удалённо.*$/i, '')
+          .replace(/\s+/g, ' ')
+          .trim();
+        
+        professionName = professionName.split(/[,/]/)[0].trim();
+        
+        // Пропускаем саму профессию
+        if (professionName.toLowerCase() === profession.toLowerCase()) return;
+        
+        if (professionName.length >= 3 && professionName.length <= 50) {
+          const count = professionsMap.get(professionName) || 0;
+          professionsMap.set(professionName, count + 1);
+        }
+      });
+      
+      // Топ 10 похожих профессий
+      hhProfessions = Array.from(professionsMap.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10)
+        .map(([name, count]) => ({ name, count }));
+      
+      logger.info('Получены похожие профессии из HH', { profession, count: hhProfessions.length });
+    }
+  } catch (error: any) {
+    logger.error('Ошибка получения похожих профессий из HH', error, { profession });
+  }
+  
+  // Шаг 2: Используем LLM для выбора наиболее подходящих профессий
   const prompt = `Ты AI-ассистент для карьерного консультирования. Найди 3-4 профессии, похожие на "${profession}".
 
-Доступные профессии:
+Контекст пользователя:
+${context?.level ? `- Уровень: ${context.level}` : ''}
+${context?.skills ? `- Навыки: ${context.skills.join(', ')}` : ''}
+${context?.interests ? `- Интересы: ${context.interests.join(', ')}` : ''}
+
+Доступные готовые карточки профессий:
 ${professions.map((p, i) => `${i + 1}. ${p.profession} (${p.level}, ${p.company}) - slug: ${p.slug}`).join('\n')}
 
-Выбери профессии, которые:
-- Имеют схожие навыки
+Похожие профессии из HeadHunter (актуальный рынок):
+${hhProfessions.map((p, i) => `${i + 1}. ${p.name} (${p.count} вакансий)`).join('\n')}
+
+Выбери 3-4 профессии, которые:
+- Имеют схожие навыки с "${profession}"
 - Похожи по типу работы
 - Могут быть интересны специалисту из "${profession}"
+- Приоритет: готовые карточки, но можно включить профессии из HH если они релевантны
 
 Формат JSON:
 {
-  "content": "Краткое объяснение почему эти профессии похожи (1-2 предложения)",
-  "professionSlugs": ["slug1", "slug2", "slug3"]
+  "content": "Краткое объяснение почему эти профессии похожи и почему могут заинтересовать (2-3 предложения)",
+  "selectedProfessions": [
+    {
+      "name": "название профессии",
+      "source": "existing" или "hh",
+      "slug": "slug если source=existing, иначе null",
+      "reason": "почему эта профессия похожа (1 предложение)"
+    }
+  ]
 }`;
 
   try {
@@ -441,19 +512,39 @@ ${professions.map((p, i) => `${i + 1}. ${p.profession} (${p.level}, ${p.company}
     });
 
     const result = JSON.parse(response.text || '{}');
-    const selectedProfessions = professions.filter((p) =>
-      result.professionSlugs?.includes(p.slug)
-    );
+    const selectedProfessions = result.selectedProfessions || [];
+    
+    // Формируем карточки
+    const cards: any[] = [];
+    
+    for (const selected of selectedProfessions) {
+      if (selected.source === 'existing' && selected.slug) {
+        const existing = professions.find(p => p.slug === selected.slug);
+        if (existing) {
+          cards.push({
+            slug: existing.slug,
+            profession: existing.profession,
+            level: existing.level,
+            company: existing.company,
+            image: existing.image,
+          });
+        }
+      } else if (selected.source === 'hh') {
+        const professionSlug = transliterate(selected.name);
+        cards.push({
+          slug: professionSlug,
+          profession: selected.name,
+          level: context?.level || 'Middle',
+          company: 'IT-компания',
+          image: null,
+          isVirtual: true,
+        });
+      }
+    }
 
     return {
       content: result.content || `Вот профессии, похожие на ${profession}:`,
-      cards: selectedProfessions.map((p) => ({
-        slug: p.slug,
-        profession: p.profession,
-        level: p.level,
-        company: p.company,
-        image: p.image,
-      })),
+      cards: cards.slice(0, 4),
     };
   } catch (error: any) {
     console.error('Similar professions error:', error);
@@ -465,14 +556,63 @@ ${professions.map((p, i) => `${i + 1}. ${p.profession} (${p.level}, ${p.company}
   }
 }
 
-// Показать примеры задач для профессии
-async function showTaskExamples(profession: string): Promise<{ content: string; tasks: string[] }> {
+// Показать примеры задач для профессии (с использованием HH API + LLM)
+async function showTaskExamples(
+  profession: string, 
+  context?: {
+    level?: string;
+    company?: string;
+    location?: string;
+    specialization?: string;
+  }
+): Promise<{ content: string; tasks: string[] }> {
   const ai = getAIClient();
   
-  const prompt = `Ты AI-ассистент для карьерного консультирования. Опиши типичные задачи для профессии "${profession}".
+  // Шаг 1: Получаем реальные вакансии из HH API
+  let hhVacancies: any[] = [];
+  try {
+    const searchQuery = `${profession}${context?.specialization ? ` ${context.specialization}` : ''}`;
+    const response = await fetch(
+      `https://api.hh.ru/vacancies?text=${encodeURIComponent(searchQuery)}&per_page=10&area=113&order_by=relevance`,
+      { headers: { 'User-Agent': 'HH-Vibe-Career-App/1.0' } }
+    );
+    
+    if (response.ok) {
+      const data = await response.json();
+      hhVacancies = data.items || [];
+      logger.info('Получены вакансии из HH для задач', { profession, count: hhVacancies.length });
+    }
+  } catch (error: any) {
+    logger.error('Ошибка получения вакансий из HH для задач', error, { profession });
+  }
+  
+  // Шаг 2: Извлекаем требования и обязанности из вакансий
+  const responsibilities = hhVacancies
+    .slice(0, 5) // Берем первые 5 вакансий
+    .map((v: any) => {
+      // Извлекаем текст обязанностей из HTML (если есть)
+      const snippet = v.snippet?.responsibility || '';
+      return snippet.replace(/<[^>]*>/g, '').trim();
+    })
+    .filter((r: string) => r.length > 0);
+  
+  // Шаг 3: Используем LLM для анализа и структурирования задач
+  const prompt = `Ты AI-ассистент для карьерного консультирования. Опиши типичные задачи для профессии "${profession}"${context?.level ? ` уровня ${context.level}` : ''}.
 
-Создай 5-7 конкретных примеров задач, которые выполняет этот специалист в течение дня/недели.
-Задачи должны быть реалистичными и понятными.
+Контекст:
+${context?.level ? `- Уровень: ${context.level}` : ''}
+${context?.company ? `- Компания: ${context.company}` : ''}
+${context?.location ? `- Локация: ${context.location}` : ''}
+${context?.specialization ? `- Специализация: ${context.specialization}` : ''}
+
+${responsibilities.length > 0 ? `Реальные обязанности из вакансий на HeadHunter:
+${responsibilities.map((r, i) => `${i + 1}. ${r}`).join('\n')}
+
+На основе этих данных` : 'На основе твоих знаний'} создай 5-7 конкретных примеров задач, которые выполняет этот специалист в течение дня/недели.
+Задачи должны быть:
+- Реалистичными и актуальными
+- Конкретными (не общими фразами)
+- Соответствующими уровню опыта${context?.level ? ` (${context.level})` : ''}
 
 Формат JSON:
 {
@@ -485,9 +625,9 @@ async function showTaskExamples(profession: string): Promise<{ content: string; 
   ]
 }
 
-Пример для Frontend-разработчика:
+Пример для Frontend-разработчика (Middle):
 {
-  "content": "Вот типичные задачи Frontend-разработчика в течение рабочей недели:",
+  "content": "Вот типичные задачи Frontend-разработчика уровня Middle в течение рабочей недели:",
   "tasks": [
     "Реализовать адаптивную форму регистрации с валидацией полей",
     "Оптимизировать загрузку изображений для улучшения производительности сайта",
@@ -527,13 +667,85 @@ async function showTaskExamples(profession: string): Promise<{ content: string; 
   }
 }
 
-// Детальная информация о карьерном пути
-async function showCareerDetails(profession: string, currentLevel?: string): Promise<{ content: string; details: any }> {
+// Детальная информация о карьерном пути (с использованием HH API + LLM)
+async function showCareerDetails(
+  profession: string, 
+  currentLevel?: string,
+  context?: {
+    location?: string;
+    specialization?: string;
+  }
+): Promise<{ content: string; details: any }> {
   const ai = getAIClient();
   
+  // Шаг 1: Получаем реальные вакансии из HH API для разных уровней
+  const levelsData: Record<string, any> = {};
+  const levels = ['junior', 'middle', 'senior'];
+  
+  for (const level of levels) {
+    try {
+      const searchQuery = `${profession} ${level}${context?.specialization ? ` ${context.specialization}` : ''}`;
+      const response = await fetch(
+        `https://api.hh.ru/vacancies?text=${encodeURIComponent(searchQuery)}&per_page=5&area=113&order_by=relevance`,
+        { headers: { 'User-Agent': 'HH-Vibe-Career-App/1.0' } }
+      );
+      
+      if (response.ok) {
+        const data = await response.json();
+        const vacancies = data.items || [];
+        
+        // Извлекаем зарплаты и требования
+        const salaries = vacancies
+          .filter((v: any) => v.salary)
+          .map((v: any) => ({
+            from: v.salary.from,
+            to: v.salary.to,
+            currency: v.salary.currency,
+          }));
+        
+        const requirements = vacancies
+          .slice(0, 3)
+          .map((v: any) => {
+            const snippet = v.snippet?.requirement || '';
+            return snippet.replace(/<[^>]*>/g, '').trim();
+          })
+          .filter((r: string) => r.length > 0);
+        
+        levelsData[level] = {
+          count: data.found || 0,
+          salaries,
+          requirements,
+        };
+        
+        logger.info(`Получены данные для ${level} уровня`, { profession, count: vacancies.length });
+      }
+    } catch (error: any) {
+      logger.error(`Ошибка получения данных для ${level}`, error, { profession });
+    }
+  }
+  
+  // Шаг 2: Используем LLM для анализа и структурирования карьерного пути
   const prompt = `Ты AI-ассистент для карьерного консультирования. Опиши детальный карьерный путь для профессии "${profession}"${currentLevel ? ` (текущий уровень: ${currentLevel})` : ''}.
 
-Создай подробное описание карьерного роста с конкретными примерами и советами.
+Контекст:
+${context?.location ? `- Локация: ${context.location}` : ''}
+${context?.specialization ? `- Специализация: ${context.specialization}` : ''}
+
+Реальные данные с HeadHunter:
+${Object.entries(levelsData).map(([level, data]: [string, any]) => {
+  if (data.count === 0) return `- ${level}: данных нет`;
+  
+  const avgSalary = data.salaries.length > 0 
+    ? Math.round(data.salaries.reduce((sum: number, s: any) => sum + (s.from || s.to || 0), 0) / data.salaries.length)
+    : null;
+  
+  return `- ${level.charAt(0).toUpperCase() + level.slice(1)}:
+  * Вакансий найдено: ${data.count}
+  ${avgSalary ? `* Средняя зарплата: ~${avgSalary} руб.` : ''}
+  ${data.requirements.length > 0 ? `* Типичные требования:\n    - ${data.requirements.slice(0, 2).join('\n    - ')}` : ''}`;
+}).join('\n')}
+
+На основе этих реальных данных создай подробное описание карьерного роста с конкретными примерами и советами.
 
 Формат JSON:
 {
@@ -544,12 +756,13 @@ async function showCareerDetails(profession: string, currentLevel?: string): Pro
       "duration": "1-2 года",
       "skills": ["навык1", "навык2"],
       "responsibilities": "Что делает на этом уровне",
-      "salary": "диапазон зарплаты",
+      "salary": "диапазон зарплаты (используй данные из HH если есть)",
       "tips": "Советы для перехода на следующий уровень"
     },
     // ... для Middle, Senior, Lead/Principal
   ],
-  "nextSteps": "Что делать для карьерного роста (если указан текущий уровень)"
+  "nextSteps": "Что делать для карьерного роста (если указан текущий уровень)",
+  "marketDemand": "Краткий анализ спроса на рынке (на основе количества вакансий из HH)"
 }`;
 
   try {
@@ -1780,12 +1993,23 @@ export async function POST(request: NextRequest) {
         (lastAssistantMessage?.cards?.[0]?.profession) || 
         'Frontend разработчик';
       
-      const similarInfo = await showSimilarProfessions(professionName);
+      // Извлекаем контекст для подбора похожих профессий
+      const similarContext = {
+        level: lastAssistantMessage?.cards?.[0]?.level || persona?.experience,
+        skills: persona?.skills || [],
+        interests: persona?.interests || [],
+      };
+      
+      const similarInfo = await showSimilarProfessions(professionName, similarContext);
       
       responseMessage = {
         type: 'cards',
         content: similarInfo.content,
         cards: similarInfo.cards,
+        metadata: {
+          currentProfession: professionName,
+          showingSimilar: true,
+        },
       };
       stage = 'showing_results';
     }
@@ -1795,7 +2019,15 @@ export async function POST(request: NextRequest) {
         (lastAssistantMessage?.cards?.[0]?.profession) || 
         'Frontend разработчик';
       
-      const tasksInfo = await showTaskExamples(professionName);
+      // Извлекаем контекст из карточки или metadata
+      const cardContext = {
+        level: lastAssistantMessage?.cards?.[0]?.level || persona?.experience,
+        company: lastAssistantMessage?.cards?.[0]?.company,
+        location: persona?.location,
+        specialization: persona?.specialization,
+      };
+      
+      const tasksInfo = await showTaskExamples(professionName, cardContext);
       
       let tasksText = `${tasksInfo.content}\n\n`;
       if (tasksInfo.tasks && tasksInfo.tasks.length > 0) {
@@ -1808,6 +2040,10 @@ export async function POST(request: NextRequest) {
         type: 'text',
         content: tasksText,
         buttons: ['Показать похожие профессии', 'Карьерный путь', 'Главное меню'],
+        metadata: {
+          currentProfession: professionName,
+          showingTasks: true,
+        },
       };
       stage = 'showing_results';
     }
@@ -1816,9 +2052,15 @@ export async function POST(request: NextRequest) {
       const professionName = intent.extractedInfo?.profession || 
         (lastAssistantMessage?.cards?.[0]?.profession) || 
         'Frontend разработчик';
-      const currentLevel = intent.extractedInfo?.level;
+      const currentLevel = intent.extractedInfo?.level || lastAssistantMessage?.cards?.[0]?.level;
       
-      const careerInfo = await showCareerDetails(professionName, currentLevel);
+      // Извлекаем контекст
+      const careerContext = {
+        location: persona?.location,
+        specialization: persona?.specialization,
+      };
+      
+      const careerInfo = await showCareerDetails(professionName, currentLevel, careerContext);
       
       let careerText = `${careerInfo.content}\n\n`;
       if (careerInfo.details?.levels && careerInfo.details.levels.length > 0) {
@@ -1834,13 +2076,20 @@ export async function POST(request: NextRequest) {
         });
       }
       if (careerInfo.details?.nextSteps) {
-        careerText += `🎯 **Следующие шаги:** ${careerInfo.details.nextSteps}`;
+        careerText += `🎯 **Следующие шаги:** ${careerInfo.details.nextSteps}\n\n`;
+      }
+      if (careerInfo.details?.marketDemand) {
+        careerText += `📊 **Спрос на рынке:** ${careerInfo.details.marketDemand}`;
       }
       
       responseMessage = {
         type: 'text',
         content: careerText,
         buttons: ['Показать похожие профессии', 'Примеры задач', 'Главное меню'],
+        metadata: {
+          currentProfession: professionName,
+          showingCareer: true,
+        },
       };
       stage = 'showing_results';
     }
@@ -2136,9 +2385,13 @@ export async function POST(request: NextRequest) {
             }
           );
           
+        // Используем адаптивные лейблы из сгенерированной карточки
+        const levelLabel = generatedCard.displayLabels?.level || 'Уровень';
+        const displayLevel = generatedCard.level || level;
+        
         responseMessage = {
           type: 'cards',
-          content: `Отлично! Я сгенерировал карточку для профессии "${professionForClarification}" с учетом ваших предпочтений:\n\n• Уровень: ${level}\n• Формат: ${persona.workStyle === 'remote' ? 'Удалёнка' : persona.workStyle === 'office' ? 'Офис' : 'Гибрид'}\n• Компания: ${company}\n• Локация: ${persona.location === 'moscow' ? 'Москва' : persona.location === 'spb' ? 'Санкт-Петербург' : persona.location === 'remote' ? 'Удалённо' : 'Другой город'}\n${persona.specialization ? `• Специализация: ${persona.specialization}` : ''}\n\nЧто хочешь узнать дополнительно?`,
+          content: `Отлично! Я сгенерировал карточку для профессии "${professionForClarification}" с учетом ваших предпочтений:\n\n• ${levelLabel}: ${displayLevel}\n• Формат: ${persona.workStyle === 'remote' ? 'Удалёнка' : persona.workStyle === 'office' ? 'Офис' : 'Гибрид'}\n• Компания: ${company}\n• Локация: ${persona.location === 'moscow' ? 'Москва' : persona.location === 'spb' ? 'Санкт-Петербург' : persona.location === 'remote' ? 'Удалённо' : 'Другой город'}\n${persona.specialization ? `• Специализация: ${persona.specialization}` : ''}\n\nЧто хочешь узнать дополнительно?`,
           cards: [{
             slug: generatedCard.slug,
             profession: generatedCard.profession,
