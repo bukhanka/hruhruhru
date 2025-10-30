@@ -19,6 +19,13 @@ type ProfessionData = {
   profession: string;
   level?: string;
   company?: string;
+  displayLabels?: {
+    level?: string;
+    stack?: string;
+    skills?: string;
+    schedule?: string;
+    careerPath?: string;
+  };
   images?: string[];
   benefits?: { icon: string; text: string }[];
   dialog?: { message: string; options?: string[]; response: string };
@@ -33,6 +40,7 @@ type ProfessionData = {
   topCompanies?: string[];
   videos?: { videoId: string; title: string; thumbnail: string; channelTitle: string }[];
   generatedAt?: string;
+  isIT?: boolean;
 };
 
 export default function ProfessionPage({ params }: { params: Promise<{ id: string }> }) {
@@ -242,7 +250,7 @@ export default function ProfessionPage({ params }: { params: Promise<{ id: strin
             )}
             <h1 className="text-[clamp(2rem,4vw,3rem)] font-bold leading-tight">{data.profession}</h1>
             <p className="max-w-xl text-sm text-white/80">
-              Представь, что ты уже в команде: мы собрали расписание дня, стек, атмосферу и карьерный рост, основанные на
+              Представь, что ты уже в команде: мы собрали {data.displayLabels?.schedule?.toLowerCase() || 'расписание дня'}, {data.displayLabels?.stack?.toLowerCase() || 'стек'}, атмосферу и карьерный рост, основанные на
               данных hh.ru и опыте специалистов.
             </p>
 
@@ -349,7 +357,7 @@ export default function ProfessionPage({ params }: { params: Promise<{ id: strin
           </section>
 
           <section id="schedule" className="scroll-mt-28 space-y-4">
-            <ContentCard title="Твой день" subtitle="От первого кофе до релиза" padding="p-4 sm:p-6">
+            <ContentCard title={data.displayLabels?.schedule || "Твой день"} subtitle="От первого кофе до релиза" padding="p-4 sm:p-6">
               <div className="space-y-5">
                 {data.schedule?.map((item, index) => {
                   const isOpen = selectedTime === index;
@@ -398,11 +406,13 @@ export default function ProfessionPage({ params }: { params: Promise<{ id: strin
           </section>
 
           <section id="skills" className="scroll-mt-28 space-y-4">
-            <ContentCard title="Стек и навыки" subtitle="Что стоит подтянуть" padding="p-4 sm:p-6">
+            <ContentCard title={data.displayLabels?.skills || "Навыки"} subtitle="Что стоит подтянуть" padding="p-4 sm:p-6">
               <div className="space-y-6">
                 {data.stack && data.stack.length > 0 && (
                   <div>
-                    <h3 className="text-sm font-semibold uppercase tracking-wide text-text-secondary">Технический стек</h3>
+                    <h3 className="text-sm font-semibold uppercase tracking-wide text-text-secondary">
+                      {data.displayLabels?.stack || "Технический стек"}
+                    </h3>
                     <div className="mt-3 flex flex-wrap gap-2">
                       {data.stack.map((tech) => (
                         <span key={tech} className="inline-flex items-center rounded-full bg-hh-gray-100 px-4 py-1.5 text-xs font-medium text-text-primary">
@@ -436,7 +446,7 @@ export default function ProfessionPage({ params }: { params: Promise<{ id: strin
           </section>
 
           <section id="career" className="scroll-mt-28 space-y-4">
-            <ContentCard title="Карьерный путь" subtitle="Как будет развиваться твой вайб" padding="p-4 sm:p-6">
+            <ContentCard title={data.displayLabels?.careerPath || "Карьерный путь"} subtitle="Как будет развиваться твой вайб" padding="p-4 sm:p-6">
               {data.careerTree ? (
                 // Новая древовидная roadmap на основе навыков
                 <CareerTreeComponent careerTree={data.careerTree} />

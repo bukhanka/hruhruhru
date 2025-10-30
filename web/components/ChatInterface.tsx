@@ -292,9 +292,11 @@ function MessageBubble({
                 )}
                 <div>
                   <h4 className="text-base font-semibold text-text-primary">{card.profession}</h4>
-                  <p className="mt-1 text-xs uppercase tracking-wide text-text-secondary">
-                    {card.level} • {card.company}
-                  </p>
+                  {(card.level || card.company) && (
+                    <p className="mt-1 text-xs uppercase tracking-wide text-text-secondary">
+                      {card.level} {card.level && card.company && '•'} {card.company}
+                    </p>
+                  )}
                   {card.description && (
                     <p className="mt-2 text-sm text-text-secondary">{card.description}</p>
                   )}

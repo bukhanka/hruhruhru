@@ -325,12 +325,31 @@ ${contextualInstructions}
 - Используй разные эмодзи для каждого события в schedule
 - В description используй цитаты или короткие фразы из рабочего процесса
 
+КРИТИЧЕСКИ ВАЖНО - displayLabels:
+Добавь объект displayLabels с названиями полей для UI, адаптированными под эту профессию:
+{
+  "displayLabels": {
+    "level": "${isIT ? 'Уровень опыта' : 'Опыт работы'}",
+    "stack": "${isIT ? 'Технологический стек' : 'Рабочие инструменты и навыки'}",
+    "skills": "${isIT ? 'Технические навыки' : 'Профессиональные навыки'}",
+    "schedule": "${isIT ? 'Рабочий день' : 'Рабочий день'}",
+    "careerPath": "${isIT ? 'Карьерный путь' : 'Карьерный рост'}"
+  }
+}
+
+Адаптируй эти названия под конкретную профессию. Например:
+- Для массажиста: "stack" → "Инструменты и материалы"
+- Для крановщика: "stack" → "Оборудование и навыки"
+- Для повара: "stack" → "Кухонное оборудование и техники"
+Будь креативен, но остерегайся технических терминов для не-IT профессий!
+
 ${!isIT ? `
 КРИТИЧЕСКИ ВАЖНО для НЕ IT профессии:
 - В careerPath НЕ используй слова "Junior", "Middle", "Senior" - используй реальные названия должностей из данной профессии
 - В поле stack указывай рабочие навыки, инструменты и оборудование, а не технологические стеки
 - В dialog НЕ используй IT-контекст, серверы, код, деплой и т.д. - используй реальные рабочие ситуации профессии "${profession}"
 - НЕ используй термины "грейд", "уровень", "джун", "мидл", "синьор" - только реальные должности
+- В displayLabels используй термины, характерные для профессии "${profession}", а не IT-термины
 ` : ''}
 `;
 
@@ -340,6 +359,17 @@ ${!isIT ? `
       profession: { type: Type.STRING },
       level: { type: Type.STRING },
       company: { type: Type.STRING },
+      displayLabels: {
+        type: Type.OBJECT,
+        properties: {
+          level: { type: Type.STRING },
+          stack: { type: Type.STRING },
+          skills: { type: Type.STRING },
+          schedule: { type: Type.STRING },
+          careerPath: { type: Type.STRING },
+        },
+        required: ["level", "stack", "skills", "schedule", "careerPath"],
+      },
       schedule: {
         type: Type.ARRAY,
         items: {
@@ -405,7 +435,7 @@ ${!isIT ? `
         required: ["message", "options", "response"],
       },
     },
-    required: ["profession", "level", "company", "schedule", "stack", "benefits", "careerPath", "skills", "dialog"],
+    required: ["profession", "level", "company", "displayLabels", "schedule", "stack", "benefits", "careerPath", "skills", "dialog"],
   };
 
   const ai = getAIClient();
