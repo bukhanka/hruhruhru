@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo, use, type ReactNode } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import TimelineAudioPlayer from '@/components/TimelineAudioPlayer';
+import VoiceChat from '@/components/VoiceChat';
 
 const tabs = [
   { id: 'overview', label: 'Обзор', emoji: '👀' },
@@ -518,6 +519,17 @@ export default function ProfessionPage({ params }: { params: Promise<{ id: strin
       {isVideoOverlayOpen && currentVideo && (
         <VideoOverlay video={currentVideo} onClose={closeVideo} />
       )}
+      
+      <VoiceChat 
+        professionName={data.profession}
+        professionData={{
+          level: data.level,
+          company: data.company,
+          schedule: data.schedule,
+          skills: data.skills,
+          benefits: data.benefits,
+        }}
+      />
     </div>
   );
 }
