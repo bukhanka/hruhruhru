@@ -5,6 +5,7 @@ import { ChatRequest, ChatResponse, UserPersona, Message } from '@/types/chat';
 import fs from 'fs';
 import path from 'path';
 import { setupProxy } from '@/lib/proxy-config'; // Настройка прокси
+import { logger } from '@/lib/logger';
 import { 
   generateCard, 
   transliterate, 
@@ -694,10 +695,26 @@ async function showProfessionImpact(profession: string): Promise<{ content: stri
   }
 }
 
+// Генерация уточняющего вопроса об уровне опыта
+async function generateLevelQuestion(): Promise<{ content: string; buttons: string[] }> {
+  return {
+    content: 'Какой у тебя уровень опыта?',
+    buttons: ['Студент', 'Джун (Junior)', 'Мидл (Middle)', 'Сеньор (Senior)'],
+  };
+}
+
+// Генерация уточняющего вопроса о формате работы
+async function generateWorkFormatQuestion(): Promise<{ content: string; buttons: string[] }> {
+  return {
+    content: 'Предпочитаешь офис или удалёнку?',
+    buttons: ['Офис', 'Удалёнка', 'Гибрид', 'Не важно'],
+  };
+}
+
 // Генерация уточняющего вопроса о размере компании
 async function generateCompanySizeQuestion(): Promise<{ content: string; buttons: string[] }> {
   return {
-    content: 'Какой тип компании вам интересен?',
+    content: 'Где ты хотел бы работать?',
     buttons: ['Стартап', 'Средняя компания', 'Крупная корпорация', 'Не важно'],
   };
 }
@@ -705,8 +722,8 @@ async function generateCompanySizeQuestion(): Promise<{ content: string; buttons
 // Генерация уточняющего вопроса о локации
 async function generateLocationQuestion(): Promise<{ content: string; buttons: string[] }> {
   return {
-    content: 'В каком городе/регионе вы собираетесь работать?',
-    buttons: ['Москва', 'Санкт-Петербург', 'Другой город', 'Удаленно'],
+    content: 'В каком городе ты планируешь работать?',
+    buttons: ['Москва', 'Санкт-Петербург', 'Другой город', 'Удалённо'],
   };
 }
 
@@ -755,19 +772,44 @@ async function generateSpecializationQuestion(profession: string): Promise<{ con
 }
 
 // Преобразование ответа пользователя в параметры
+// Учитываем как полный текст кнопки, так и частичные совпадения
+function mapLevelAnswer(answer: string): 'junior' | 'middle' | 'senior' | 'student' {
+  const answerLower = answer.toLowerCase();
+  // Проверяем полные совпадения с кнопками
+  if (answerLower === 'студент' || answerLower.includes('студент')) return 'student';
+  if (answerLower === 'джун (junior)' || answerLower.includes('джун') || answerLower.includes('junior')) return 'junior';
+  if (answerLower === 'мидл (middle)' || answerLower.includes('мидл') || answerLower.includes('middle')) return 'middle';
+  if (answerLower === 'сеньор (senior)' || answerLower.includes('сеньор') || answerLower.includes('senior')) return 'senior';
+  return 'middle'; // По умолчанию
+}
+
+function mapWorkFormatAnswer(answer: string): 'office' | 'remote' | 'hybrid' | 'any' {
+  const answerLower = answer.toLowerCase();
+  // Проверяем полные совпадения с кнопками
+  if (answerLower === 'офис' || answerLower.includes('офис')) return 'office';
+  if (answerLower === 'удалёнка' || answerLower.includes('удален') || answerLower.includes('remote')) return 'remote';
+  if (answerLower === 'гибрид' || answerLower.includes('гибрид')) return 'hybrid';
+  if (answerLower === 'не важно' || answerLower.includes('не важно')) return 'any';
+  return 'any';
+}
+
 function mapCompanySizeAnswer(answer: string): 'startup' | 'medium' | 'large' | 'any' {
   const answerLower = answer.toLowerCase();
-  if (answerLower.includes('стартап')) return 'startup';
-  if (answerLower.includes('средн')) return 'medium';
-  if (answerLower.includes('крупн') || answerLower.includes('корпорац')) return 'large';
+  // Проверяем полные совпадения с кнопками
+  if (answerLower === 'стартап' || answerLower.includes('стартап')) return 'startup';
+  if (answerLower === 'средняя компания' || answerLower.includes('средн')) return 'medium';
+  if (answerLower === 'крупная корпорация' || answerLower.includes('крупн') || answerLower.includes('корпорац')) return 'large';
+  if (answerLower === 'не важно' || answerLower.includes('не важно') || answerLower.includes('любое')) return 'any';
   return 'any';
 }
 
 function mapLocationAnswer(answer: string): 'moscow' | 'spb' | 'other' | 'remote' {
   const answerLower = answer.toLowerCase();
-  if (answerLower.includes('москв')) return 'moscow';
-  if (answerLower.includes('санкт') || answerLower.includes('петербург') || answerLower.includes('спб')) return 'spb';
-  if (answerLower.includes('удален') || answerLower.includes('remote')) return 'remote';
+  // Проверяем полные совпадения с кнопками
+  if (answerLower === 'москва' || answerLower.includes('москв')) return 'moscow';
+  if (answerLower === 'санкт-петербург' || answerLower.includes('санкт') || answerLower.includes('петербург') || answerLower.includes('спб')) return 'spb';
+  if (answerLower === 'удалённо' || answerLower.includes('удален') || answerLower.includes('remote')) return 'remote';
+  if (answerLower === 'другой город' || answerLower.includes('другой') || answerLower.includes('не важно')) return 'other';
   return 'other';
 }
 
@@ -1076,9 +1118,22 @@ ${professions.map((p, i) => `${i + 1}. "${p.profession}" -> slug: "${p.slug}" ($
 
 // Main handler
 export async function POST(request: NextRequest) {
-  try {
-    const body: ChatRequest = await request.json();
-    const { message, history, persona: currentPersona } = body;
+  return logger.time('CHAT_API', 'POST /api/chat', async () => {
+    try {
+      const body: ChatRequest = await request.json();
+      const { message, history, persona: currentPersona } = body;
+      
+      logger.info('CHAT_API', '📨 Получено сообщение в чат', {
+        messageLength: message.length,
+        historyLength: history.length,
+        hasPersona: !!currentPersona,
+        persona: currentPersona ? {
+          experience: currentPersona.experience,
+          companySize: currentPersona.companySize,
+          location: currentPersona.location,
+          isUncertain: currentPersona.isUncertain,
+        } : null,
+      });
 
     // Шаг 0: Если это первое сообщение - показываем приветствие с выбором сценария
     if (history.length === 0) {
@@ -1099,10 +1154,29 @@ export async function POST(request: NextRequest) {
     }
 
     // Step 1: Parse intent
-    const intent = await parseIntent(message, history);
+    const intent = await logger.time('CHAT_API', 'parseIntent', () => 
+      parseIntent(message, history)
+    );
+    
+    logger.info('CHAT_API', '🎯 Intent определен', {
+      intent: intent.intent,
+      confidence: intent.confidence,
+      extractedInfo: intent.extractedInfo,
+    });
 
     // Step 2: Detect/update persona
-    const persona = await detectPersona(message, history, currentPersona || null);
+    const persona = await logger.time('CHAT_API', 'detectPersona', () => 
+      detectPersona(message, history, currentPersona || null)
+    );
+    
+    logger.debug('CHAT_API', '👤 Persona обновлена', {
+      persona: {
+        experience: persona.experience,
+        companySize: persona.companySize,
+        location: persona.location,
+        isUncertain: persona.isUncertain,
+      },
+    });
 
     // Step 3: Проверяем контекст предыдущего сообщения
     const lastAssistantMessage = history
@@ -1571,24 +1645,79 @@ export async function POST(request: NextRequest) {
         stage = 'initial';
       }
     }
-    // Обработка уточняющих вопросов (три шага: размер компании, локация, специализация)
+    // Обработка уточняющих вопросов (пять шагов: уровень, формат работы, размер компании, локация, специализация)
     else if (clarificationStep && professionForClarification) {
       // Обновляем персону с ответом пользователя
-      if (clarificationStep === 'company_size') {
-        persona.companySize = mapCompanySizeAnswer(message);
+      if (clarificationStep === 'level') {
+        const mappedLevel = mapLevelAnswer(message);
+        persona.experience = mappedLevel;
         
-        // Задаем следующий вопрос о локации
-        const locationQuestion = await generateLocationQuestion();
+        // Задаем следующий вопрос о формате работы
+        const workFormatQuestion = await generateWorkFormatQuestion();
         responseMessage = {
           type: 'buttons',
-          content: locationQuestion.content,
-          buttons: locationQuestion.buttons,
+          content: workFormatQuestion.content,
+          buttons: workFormatQuestion.buttons,
           metadata: {
-            clarificationStep: 'location',
+            clarificationStep: 'work_format',
             professionForClarification,
+            professionDescription: lastAssistantMessage?.metadata?.professionDescription,
           },
         };
         stage = 'clarifying';
+      } else if (clarificationStep === 'work_format') {
+        const workFormat = mapWorkFormatAnswer(message);
+        // Если выбрана удаленка или гибрид, устанавливаем location в remote
+        if (workFormat === 'remote' || workFormat === 'hybrid') {
+          persona.location = 'remote';
+        }
+        persona.workStyle = workFormat;
+        
+        // Задаем следующий вопрос о размере компании
+        const companySizeQuestion = await generateCompanySizeQuestion();
+        responseMessage = {
+          type: 'buttons',
+          content: companySizeQuestion.content,
+          buttons: companySizeQuestion.buttons,
+          metadata: {
+            clarificationStep: 'company_size',
+            professionForClarification,
+            professionDescription: lastAssistantMessage?.metadata?.professionDescription,
+          },
+        };
+        stage = 'clarifying';
+      } else if (clarificationStep === 'company_size') {
+        persona.companySize = mapCompanySizeAnswer(message);
+        
+        // Если локация еще не установлена (не удаленка), задаем вопрос о локации
+        if (!persona.location || persona.location !== 'remote') {
+          const locationQuestion = await generateLocationQuestion();
+          responseMessage = {
+            type: 'buttons',
+            content: locationQuestion.content,
+            buttons: locationQuestion.buttons,
+            metadata: {
+              clarificationStep: 'location',
+              professionForClarification,
+              professionDescription: lastAssistantMessage?.metadata?.professionDescription,
+            },
+          };
+          stage = 'clarifying';
+        } else {
+          // Если уже удаленка, переходим к специализации
+          const specializationQuestion = await generateSpecializationQuestion(professionForClarification);
+          responseMessage = {
+            type: 'buttons',
+            content: specializationQuestion.content,
+            buttons: specializationQuestion.buttons,
+            metadata: {
+              clarificationStep: 'specialization',
+              professionForClarification,
+              professionDescription: lastAssistantMessage?.metadata?.professionDescription,
+            },
+          };
+          stage = 'clarifying';
+        }
       } else if (clarificationStep === 'location') {
         persona.location = mapLocationAnswer(message);
         
@@ -1601,32 +1730,66 @@ export async function POST(request: NextRequest) {
           metadata: {
             clarificationStep: 'specialization',
             professionForClarification,
+            professionDescription: lastAssistantMessage?.metadata?.professionDescription,
           },
         };
         stage = 'clarifying';
       } else if (clarificationStep === 'specialization') {
         persona.specialization = message;
         
-        // Все три вопроса заданы, генерируем карточку
+        // Все вопросы заданы, генерируем карточку
         try {
-          const level = intent.extractedInfo?.level || 'Middle';
-          const company = intent.extractedInfo?.company || 'IT-компания';
+          // Преобразуем уровень опыта в формат для генерации
+          const levelMap: Record<string, string> = {
+            'student': 'Junior',
+            'junior': 'Junior',
+            'middle': 'Middle',
+            'senior': 'Senior'
+          };
+          const level = levelMap[persona.experience || 'middle'] || 'Middle';
+          
+          // Определяем тип компании на основе размера
+          const companyMap: Record<string, string> = {
+            'startup': 'стартап',
+            'medium': 'средняя компания',
+            'large': 'крупная корпорация',
+            'any': 'IT-компания'
+          };
+          const company = companyMap[persona.companySize || 'any'] || 'IT-компания';
           
           // Генерируем карточку с учетом всех параметров
-          const generatedCard = await generateCard(
-            professionForClarification,
+          logger.info('CHAT_API', '🎨 Запуск генерации карточки из чата', {
+            profession: professionForClarification,
             level,
             company,
-            {
-              companySize: persona.companySize,
-              location: persona.location,
-              specialization: persona.specialization
-            }
+            companySize: persona.companySize,
+            location: persona.location,
+            specialization: persona.specialization,
+          });
+          
+          const generatedCard = await logger.time('CHAT_API', 'generateCard from chat', () =>
+            generateCard(
+              professionForClarification,
+              level,
+              company,
+              {
+                companySize: persona.companySize,
+                location: persona.location,
+                specialization: persona.specialization,
+                professionDescription: lastAssistantMessage?.metadata?.professionDescription,
+              }
+            )
           );
+          
+          logger.info('CHAT_API', '✅ Карточка сгенерирована из чата', {
+            profession: professionForClarification,
+            slug: generatedCard.slug,
+            imagesCount: generatedCard.images?.length || 0,
+          });
           
         responseMessage = {
           type: 'cards',
-          content: `Отлично! Я сгенерировал карточку для профессии "${professionForClarification}" с учетом ваших предпочтений:\n\nЧто хочешь узнать дополнительно?`,
+          content: `Отлично! Я сгенерировал карточку для профессии "${professionForClarification}" с учетом ваших предпочтений:\n\n• Уровень: ${level}\n• Формат: ${persona.workStyle === 'remote' ? 'Удалёнка' : persona.workStyle === 'office' ? 'Офис' : 'Гибрид'}\n• Компания: ${company}\n• Локация: ${persona.location === 'moscow' ? 'Москва' : persona.location === 'spb' ? 'Санкт-Петербург' : persona.location === 'remote' ? 'Удалённо' : 'Другой город'}\n${persona.specialization ? `• Специализация: ${persona.specialization}` : ''}\n\nЧто хочешь узнать дополнительно?`,
           cards: [{
             slug: generatedCard.slug,
             profession: generatedCard.profession,
@@ -1660,14 +1823,14 @@ export async function POST(request: NextRequest) {
           history
         );
         
-        // Теперь не генерируем карточку сразу, а задаем первый уточняющий вопрос
-        const companySizeQuestion = await generateCompanySizeQuestion();
+        // Теперь не генерируем карточку сразу, а задаем первый уточняющий вопрос об уровне
+        const levelQuestion = await generateLevelQuestion();
         responseMessage = {
           type: 'buttons',
-          content: companySizeQuestion.content,
-          buttons: companySizeQuestion.buttons,
+          content: `Отлично! Перед тем как сгенерирую карточку для "${professionToClarify}", уточни пару деталей 👇\n\n${levelQuestion.content}`,
+          buttons: levelQuestion.buttons,
           metadata: {
-            clarificationStep: 'company_size',
+            clarificationStep: 'level',
             professionForClarification: professionToClarify,
             professionDescription: professionDescription || undefined,
           },
@@ -1726,32 +1889,32 @@ export async function POST(request: NextRequest) {
           stage = 'clarifying';
         } catch (error: any) {
           console.error('Clarification question generation error:', error);
-          // Если не удалось сгенерировать уточняющий вопрос, сразу задаем три уточняющих вопроса
+          // Если не удалось сгенерировать уточняющий вопрос, сразу задаем первый уточняющий вопрос об уровне
           const professionName = results.professionToGenerate;
-          const companySizeQuestion = await generateCompanySizeQuestion();
+          const levelQuestion = await generateLevelQuestion();
           
           responseMessage = {
             type: 'buttons',
-            content: companySizeQuestion.content,
-            buttons: companySizeQuestion.buttons,
+            content: `Перед тем как сгенерирую карточку для "${professionName}", уточни пару деталей 👇\n\n${levelQuestion.content}`,
+            buttons: levelQuestion.buttons,
             metadata: {
-              clarificationStep: 'company_size',
+              clarificationStep: 'level',
               professionForClarification: professionName,
             },
           };
           stage = 'clarifying';
         }
       } else if (results.cards && results.cards.length === 1) {
-        // Если найдена ровно одна профессия, задаем три уточняющих вопроса перед показом карточки
+        // Если найдена ровно одна профессия, задаем уточняющие вопросы перед показом карточки
         const professionName = results.cards[0].profession;
-        const companySizeQuestion = await generateCompanySizeQuestion();
+        const levelQuestion = await generateLevelQuestion();
         
         responseMessage = {
           type: 'buttons',
-          content: `Отлично! Я нашел профессию "${professionName}". ${companySizeQuestion.content}`,
-          buttons: companySizeQuestion.buttons,
+          content: `Отлично! Я нашел профессию "${professionName}". Перед тем как покажу карточку, уточни пару деталей 👇\n\n${levelQuestion.content}`,
+          buttons: levelQuestion.buttons,
           metadata: {
-            clarificationStep: 'company_size',
+            clarificationStep: 'level',
             professionForClarification: professionName,
             existingProfessionSlug: results.cards[0].slug,
           },
@@ -1816,19 +1979,26 @@ export async function POST(request: NextRequest) {
       responseMessage.content = 'Как я могу помочь?';
     }
 
-    const chatResponse: ChatResponse = {
-      message: responseMessage,
-      persona,
-      stage,
-    };
+      const chatResponse: ChatResponse = {
+        message: responseMessage,
+        persona,
+        stage,
+      };
 
-    return NextResponse.json(chatResponse);
+      logger.info('CHAT_API', '✅ Ответ чата готов', {
+        responseType: responseMessage.type,
+        stage,
+        hasButtons: !!responseMessage.buttons?.length,
+        hasCards: !!responseMessage.cards?.length,
+      });
+
+      return NextResponse.json(chatResponse);
+    }, {
+      messageLength: message.length,
+      historyLength: history.length,
+    });
   } catch (error: any) {
-    console.error('Chat API error:', error);
-    console.error('Error details:', {
-      message: error?.message,
-      stack: error?.stack,
-      name: error?.name,
+    logger.error('CHAT_API', '❌ Ошибка в POST /api/chat', error, {
       HTTP_PROXY: process.env.HTTP_PROXY ? 'настроен' : 'не настроен',
       HTTPS_PROXY: process.env.HTTPS_PROXY ? 'настроен' : 'не настроен',
     });
