@@ -65,7 +65,7 @@ function getAvailableProfessions() {
 
 // Intent Parser: определяет намерение пользователя
 async function parseIntent(message: string, history: Message[]): Promise<{
-  intent: 'search_profession' | 'uncertain' | 'clarification' | 'general_chat' | 'scenario_choice' | 'game_day' | 'compare_professions' | 'show_impact';
+  intent: 'search_profession' | 'uncertain' | 'clarification' | 'general_chat' | 'scenario_choice' | 'game_day' | 'compare_professions' | 'show_impact' | 'show_similar' | 'show_tasks' | 'show_career_details' | 'explain_levels' | 'save_card' | 'share_card';
   confidence: number;
   extractedInfo: Record<string, any>;
 }> {
@@ -79,6 +79,12 @@ async function parseIntent(message: string, history: Message[]): Promise<{
 - "game_day": пользователь хочет прожить день в профессии (фразы: "прожить день", "игровой день", "симуляция")
 - "compare_professions": пользователь хочет сравнить профессии (фразы: "сравни", "в чем разница", "отличия")
 - "show_impact": пользователь спрашивает о влиянии/ценности профессии (фразы: "какая польза", "зачем", "влияние")
+- "show_similar": пользователь хочет похожие профессии (фразы: "похожие", "аналогичные", "альтернативы", "что еще")
+- "show_tasks": пользователь хочет примеры задач (фразы: "пример задач", "что делает", "задачи", "обязанности")
+- "show_career_details": пользователь спрашивает о карьерном росте (фразы: "карьера", "рост", "что дальше", "развитие")
+- "explain_levels": пользователь спрашивает о различиях уровней (фразы: "отличие junior", "чем отличается middle", "разница между")
+- "save_card": пользователь хочет сохранить карточку (фразы: "сохранить", "скачать", "PDF", "избранное")
+- "share_card": пользователь хочет поделиться (фразы: "поделиться", "отправить", "ссылка")
 - "general_chat": общение, приветствие, вопросы о сервисе
 
 История диалога:
@@ -95,7 +101,8 @@ ${history.slice(-3).map((m) => `${m.role}: ${m.content}`).join('\n')}
     "skills": ["навык1", "навык2"],
     "level": "junior/middle/senior если упоминается",
     "interests": ["интерес1", "интерес2"],
-    "professionsToCompare": ["профессия1", "профессия2"] - если хочет сравнить
+    "professionsToCompare": ["профессия1", "профессия2"] - если хочет сравнить,
+    "levelsToCompare": ["junior", "senior"] - если спрашивает о различиях уровней
   }
 }`;
 
@@ -396,6 +403,241 @@ async function compareProfessions(profession1: string, profession2: string): Pro
     console.error('Compare professions error:', error);
     return {
       content: `Сравнение ${profession1} и ${profession2}. Обе профессии интересны по-своему!`,
+      comparison: {},
+    };
+  }
+}
+
+// Показать похожие профессии
+async function showSimilarProfessions(profession: string): Promise<{ content: string; cards: any[] }> {
+  const ai = getAIClient();
+  const professions = getAvailableProfessions();
+  
+  const prompt = `Ты AI-ассистент для карьерного консультирования. Найди 3-4 профессии, похожие на "${profession}".
+
+Доступные профессии:
+${professions.map((p, i) => `${i + 1}. ${p.profession} (${p.level}, ${p.company}) - slug: ${p.slug}`).join('\n')}
+
+Выбери профессии, которые:
+- Имеют схожие навыки
+- Похожи по типу работы
+- Могут быть интересны специалисту из "${profession}"
+
+Формат JSON:
+{
+  "content": "Краткое объяснение почему эти профессии похожи (1-2 предложения)",
+  "professionSlugs": ["slug1", "slug2", "slug3"]
+}`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.0-flash',
+      contents: prompt,
+      config: {
+        temperature: 0.5,
+        responseMimeType: 'application/json',
+      },
+    });
+
+    const result = JSON.parse(response.text || '{}');
+    const selectedProfessions = professions.filter((p) =>
+      result.professionSlugs?.includes(p.slug)
+    );
+
+    return {
+      content: result.content || `Вот профессии, похожие на ${profession}:`,
+      cards: selectedProfessions.map((p) => ({
+        slug: p.slug,
+        profession: p.profession,
+        level: p.level,
+        company: p.company,
+        image: p.image,
+      })),
+    };
+  } catch (error: any) {
+    console.error('Similar professions error:', error);
+    // Fallback: возвращаем несколько случайных профессий
+    return {
+      content: `Вот несколько интересных профессий, похожих на ${profession}:`,
+      cards: professions.slice(0, 3),
+    };
+  }
+}
+
+// Показать примеры задач для профессии
+async function showTaskExamples(profession: string): Promise<{ content: string; tasks: string[] }> {
+  const ai = getAIClient();
+  
+  const prompt = `Ты AI-ассистент для карьерного консультирования. Опиши типичные задачи для профессии "${profession}".
+
+Создай 5-7 конкретных примеров задач, которые выполняет этот специалист в течение дня/недели.
+Задачи должны быть реалистичными и понятными.
+
+Формат JSON:
+{
+  "content": "Краткое введение (1 предложение)",
+  "tasks": [
+    "Задача 1 - конкретное описание",
+    "Задача 2 - конкретное описание",
+    "Задача 3 - конкретное описание",
+    "..."
+  ]
+}
+
+Пример для Frontend-разработчика:
+{
+  "content": "Вот типичные задачи Frontend-разработчика в течение рабочей недели:",
+  "tasks": [
+    "Реализовать адаптивную форму регистрации с валидацией полей",
+    "Оптимизировать загрузку изображений для улучшения производительности сайта",
+    "Провести код-ревью Pull Request коллеги",
+    "Исправить баг с отображением модального окна на мобильных устройствах",
+    "Интегрировать новый API для получения данных профиля пользователя"
+  ]
+}`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.0-flash',
+      contents: prompt,
+      config: {
+        temperature: 0.7,
+        responseMimeType: 'application/json',
+      },
+    });
+
+    const result = JSON.parse(response.text || '{}');
+    
+    return {
+      content: result.content || `Типичные задачи для ${profession}:`,
+      tasks: result.tasks || [],
+    };
+  } catch (error: any) {
+    console.error('Task examples error:', error);
+    return {
+      content: `Типичные задачи для ${profession}:`,
+      tasks: [
+        'Работа над текущими проектами',
+        'Общение с коллегами и командой',
+        'Решение технических задач',
+        'Участие в встречах и планировании',
+      ],
+    };
+  }
+}
+
+// Детальная информация о карьерном пути
+async function showCareerDetails(profession: string, currentLevel?: string): Promise<{ content: string; details: any }> {
+  const ai = getAIClient();
+  
+  const prompt = `Ты AI-ассистент для карьерного консультирования. Опиши детальный карьерный путь для профессии "${profession}"${currentLevel ? ` (текущий уровень: ${currentLevel})` : ''}.
+
+Создай подробное описание карьерного роста с конкретными примерами и советами.
+
+Формат JSON:
+{
+  "content": "Общее описание карьерного пути (2-3 предложения)",
+  "levels": [
+    {
+      "level": "Junior",
+      "duration": "1-2 года",
+      "skills": ["навык1", "навык2"],
+      "responsibilities": "Что делает на этом уровне",
+      "salary": "диапазон зарплаты",
+      "tips": "Советы для перехода на следующий уровень"
+    },
+    // ... для Middle, Senior, Lead/Principal
+  ],
+  "nextSteps": "Что делать для карьерного роста (если указан текущий уровень)"
+}`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.0-flash',
+      contents: prompt,
+      config: {
+        temperature: 0.6,
+        responseMimeType: 'application/json',
+      },
+    });
+
+    const result = JSON.parse(response.text || '{}');
+    
+    return {
+      content: result.content || `Карьерный путь для ${profession}:`,
+      details: result,
+    };
+  } catch (error: any) {
+    console.error('Career details error:', error);
+    return {
+      content: `Карьерный путь для ${profession} обычно включает несколько уровней роста.`,
+      details: {},
+    };
+  }
+}
+
+// Объяснить различия между уровнями
+async function explainLevelDifferences(profession: string, levels: string[]): Promise<{ content: string; comparison: any }> {
+  const ai = getAIClient();
+  
+  const level1 = levels[0] || 'Junior';
+  const level2 = levels[1] || 'Senior';
+  
+  const prompt = `Ты AI-ассистент для карьерного консультирования. Объясни разницу между уровнями ${level1} и ${level2} для профессии "${profession}".
+
+Создай детальное сравнение по ключевым критериям.
+
+Формат JSON:
+{
+  "content": "Краткое резюме главных различий (2-3 предложения)",
+  "comparison": {
+    "experience": {
+      "${level1}": "описание опыта",
+      "${level2}": "описание опыта"
+    },
+    "responsibilities": {
+      "${level1}": "описание обязанностей",
+      "${level2}": "описание обязанностей"
+    },
+    "skills": {
+      "${level1}": ["навык1", "навык2"],
+      "${level2}": ["навык1", "навык2"]
+    },
+    "autonomy": {
+      "${level1}": "уровень самостоятельности",
+      "${level2}": "уровень самостоятельности"
+    },
+    "impact": {
+      "${level1}": "влияние на проект/команду",
+      "${level2}": "влияние на проект/команду"
+    },
+    "salary": {
+      "${level1}": "диапазон",
+      "${level2}": "диапазон"
+    }
+  }
+}`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.0-flash',
+      contents: prompt,
+      config: {
+        temperature: 0.5,
+        responseMimeType: 'application/json',
+      },
+    });
+
+    const result = JSON.parse(response.text || '{}');
+    
+    return {
+      content: result.content || `Вот главные различия между ${level1} и ${level2}:`,
+      comparison: result.comparison || {},
+    };
+  } catch (error: any) {
+    console.error('Level differences error:', error);
+    return {
+      content: `${level2} отличается от ${level1} более высоким уровнем ответственности, опыта и влияния на проект.`,
       comparison: {},
     };
   }
@@ -1110,6 +1352,155 @@ export async function POST(request: NextRequest) {
       };
       stage = 'showing_results';
     }
+    // Обработка запроса похожих профессий
+    else if (intent.intent === 'show_similar') {
+      const professionName = intent.extractedInfo?.profession || 
+        (lastAssistantMessage?.cards?.[0]?.profession) || 
+        'Frontend разработчик';
+      
+      const similarInfo = await showSimilarProfessions(professionName);
+      
+      responseMessage = {
+        type: 'cards',
+        content: similarInfo.content,
+        cards: similarInfo.cards,
+      };
+      stage = 'showing_results';
+    }
+    // Обработка запроса примеров задач
+    else if (intent.intent === 'show_tasks') {
+      const professionName = intent.extractedInfo?.profession || 
+        (lastAssistantMessage?.cards?.[0]?.profession) || 
+        'Frontend разработчик';
+      
+      const tasksInfo = await showTaskExamples(professionName);
+      
+      let tasksText = `${tasksInfo.content}\n\n`;
+      if (tasksInfo.tasks && tasksInfo.tasks.length > 0) {
+        tasksInfo.tasks.forEach((task: string, index: number) => {
+          tasksText += `${index + 1}. ${task}\n`;
+        });
+      }
+      
+      responseMessage = {
+        type: 'text',
+        content: tasksText,
+        buttons: ['Показать похожие профессии', 'Карьерный путь', 'Главное меню'],
+      };
+      stage = 'showing_results';
+    }
+    // Обработка запроса о карьерном росте
+    else if (intent.intent === 'show_career_details') {
+      const professionName = intent.extractedInfo?.profession || 
+        (lastAssistantMessage?.cards?.[0]?.profession) || 
+        'Frontend разработчик';
+      const currentLevel = intent.extractedInfo?.level;
+      
+      const careerInfo = await showCareerDetails(professionName, currentLevel);
+      
+      let careerText = `${careerInfo.content}\n\n`;
+      if (careerInfo.details?.levels && careerInfo.details.levels.length > 0) {
+        careerText += `📈 **Уровни карьерного роста:**\n\n`;
+        careerInfo.details.levels.forEach((level: any) => {
+          careerText += `**${level.level}** (${level.duration})\n`;
+          careerText += `💼 Обязанности: ${level.responsibilities}\n`;
+          careerText += `💰 Зарплата: ${level.salary}\n`;
+          if (level.tips) {
+            careerText += `💡 Советы: ${level.tips}\n`;
+          }
+          careerText += '\n';
+        });
+      }
+      if (careerInfo.details?.nextSteps) {
+        careerText += `🎯 **Следующие шаги:** ${careerInfo.details.nextSteps}`;
+      }
+      
+      responseMessage = {
+        type: 'text',
+        content: careerText,
+        buttons: ['Показать похожие профессии', 'Примеры задач', 'Главное меню'],
+      };
+      stage = 'showing_results';
+    }
+    // Обработка запроса о различиях уровней
+    else if (intent.intent === 'explain_levels') {
+      const professionName = intent.extractedInfo?.profession || 
+        (lastAssistantMessage?.cards?.[0]?.profession) || 
+        'Frontend разработчик';
+      const levels = intent.extractedInfo?.levelsToCompare || ['Junior', 'Senior'];
+      
+      const levelInfo = await explainLevelDifferences(professionName, levels);
+      
+      let levelText = `${levelInfo.content}\n\n`;
+      if (levelInfo.comparison && Object.keys(levelInfo.comparison).length > 0) {
+        levelText += `📊 **Сравнение ${levels[0]} vs ${levels[1]}:**\n\n`;
+        
+        const labels: Record<string, string> = {
+          experience: '📚 Опыт',
+          responsibilities: '💼 Обязанности',
+          skills: '🎯 Навыки',
+          autonomy: '🚀 Самостоятельность',
+          impact: '💡 Влияние',
+          salary: '💰 Зарплата',
+        };
+        
+        for (const [key, label] of Object.entries(labels)) {
+          if (levelInfo.comparison[key]) {
+            levelText += `${label}:\n`;
+            levelText += `• ${levels[0]}: ${Array.isArray(levelInfo.comparison[key][levels[0]]) ? levelInfo.comparison[key][levels[0]].join(', ') : levelInfo.comparison[key][levels[0]]}\n`;
+            levelText += `• ${levels[1]}: ${Array.isArray(levelInfo.comparison[key][levels[1]]) ? levelInfo.comparison[key][levels[1]].join(', ') : levelInfo.comparison[key][levels[1]]}\n\n`;
+          }
+        }
+      }
+      
+      responseMessage = {
+        type: 'text',
+        content: levelText,
+        buttons: ['Карьерный путь', 'Примеры задач', 'Главное меню'],
+      };
+      stage = 'showing_results';
+    }
+    // Обработка запроса сохранения карточки
+    else if (intent.intent === 'save_card') {
+      const professionSlug = lastAssistantMessage?.cards?.[0]?.slug;
+      
+      if (professionSlug) {
+        responseMessage = {
+          type: 'text',
+          content: `✅ Отлично! Ты можешь:\n\n1. 📥 **Скачать PDF** — перейди на страницу профессии и нажми кнопку "Скачать PDF карточку"\n2. ⭐ **Добавить в избранное** — открой карточку в браузере и добавь в закладки\n3. 🔗 **Сохранить ссылку**: /profession/${professionSlug}\n\nХочешь посмотреть полную карточку профессии?`,
+          buttons: ['Открыть карточку', 'Похожие профессии', 'Главное меню'],
+          metadata: {
+            professionSlug,
+          },
+        };
+      } else {
+        responseMessage = {
+          type: 'text',
+          content: 'Сначала выбери профессию, которую хочешь сохранить 😊',
+        };
+      }
+      stage = 'showing_results';
+    }
+    // Обработка запроса поделиться
+    else if (intent.intent === 'share_card') {
+      const professionSlug = lastAssistantMessage?.cards?.[0]?.slug;
+      const professionName = lastAssistantMessage?.cards?.[0]?.profession;
+      
+      if (professionSlug) {
+        const shareUrl = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://hh-vibe.ru'}/profession/${professionSlug}`;
+        responseMessage = {
+          type: 'text',
+          content: `🔗 **Поделиться профессией "${professionName}"**\n\nСсылка для отправки:\n${shareUrl}\n\nСкопируй эту ссылку и отправь друзьям! Они смогут посмотреть полную карточку профессии с расписанием дня, навыками и карьерным путём.`,
+          buttons: ['Открыть карточку', 'Похожие профессии', 'Главное меню'],
+        };
+      } else {
+        responseMessage = {
+          type: 'text',
+          content: 'Сначала выбери профессию, которой хочешь поделиться 😊',
+        };
+      }
+      stage = 'showing_results';
+    }
     // Обработка сравнения профессий из intent
     else if (intent.intent === 'compare_professions') {
       if (intent.extractedInfo?.professionsToCompare && intent.extractedInfo.professionsToCompare.length >= 2) {
@@ -1233,18 +1624,23 @@ export async function POST(request: NextRequest) {
             }
           );
           
-          responseMessage = {
-            type: 'cards',
-            content: `Отлично! Я сгенерировал карточку для профессии "${professionForClarification}" с учетом ваших предпочтений:`,
-            cards: [{
-              slug: generatedCard.slug,
-              profession: generatedCard.profession,
-              level: generatedCard.level,
-              company: generatedCard.company,
-              image: generatedCard.images?.[0] || null,
-            }],
-          };
-          stage = 'showing_results';
+        responseMessage = {
+          type: 'cards',
+          content: `Отлично! Я сгенерировал карточку для профессии "${professionForClarification}" с учетом ваших предпочтений:\n\nЧто хочешь узнать дополнительно?`,
+          cards: [{
+            slug: generatedCard.slug,
+            profession: generatedCard.profession,
+            level: generatedCard.level,
+            company: generatedCard.company,
+            image: generatedCard.images?.[0] || null,
+          }],
+          buttons: ['📋 Примеры задач', '📈 Карьерный рост', '🔍 Похожие профессии', '💾 Сохранить'],
+          metadata: {
+            showingProfessionCard: true,
+            currentProfession: professionForClarification,
+          },
+        };
+        stage = 'showing_results';
         } catch (error: any) {
           console.error('Generation error:', error);
           responseMessage = {
@@ -1301,7 +1697,7 @@ export async function POST(request: NextRequest) {
         const suggestions = await suggestProfessionsForUncertainUser(persona, history);
         responseMessage = {
           type: 'cards',
-          content: suggestions.content,
+          content: `${suggestions.content}\n\nВыбери любую, чтобы узнать больше!`,
           cards: suggestions.cards,
         };
         stage = 'showing_results';
@@ -1363,10 +1759,16 @@ export async function POST(request: NextRequest) {
         stage = 'clarifying';
       } else {
         // Обычный результат поиска (несколько профессий)
+        const hasMultipleCards = results.cards && results.cards.length > 1;
         responseMessage = {
           type: 'cards',
-          content: results.content,
+          content: hasMultipleCards ? `${results.content}\n\nВыбери любую, чтобы узнать больше!` : `${results.content}\n\nЧто хочешь узнать дополнительно?`,
           cards: results.cards,
+          buttons: hasMultipleCards ? undefined : ['📋 Примеры задач', '📈 Карьерный рост', '🔍 Похожие профессии', '💾 Сохранить'],
+          metadata: hasMultipleCards ? undefined : {
+            showingProfessionCard: true,
+            currentProfession: results.cards[0]?.profession,
+          },
         };
         stage = 'showing_results';
       }

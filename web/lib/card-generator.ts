@@ -717,6 +717,213 @@ export async function fetchYouTubeVideos(
   }
 }
 
+// Генерация древовидной roadmap на основе навыков
+export async function generateCareerTree(
+  profession: string,
+  level: string,
+  currentSkills: { name: string; level: number }[],
+  stack: string[],
+  isIT: boolean,
+  onProgress?: (message: string, progress: number) => void,
+  location?: 'moscow' | 'spb' | 'other' | 'remote'
+): Promise<any> {
+  if (onProgress) onProgress('Генерирую древовидную roadmap...', 78);
+  
+  const ai = getAIClient();
+  
+  // Получаем реальные навыки из вакансий hh.ru
+  if (onProgress) onProgress('Анализирую реальные вакансии для навыков...', 78.5);
+  const realSkillsData = await fetchRealSkillsFromVacancies(profession, location, 15);
+  const realSkillsList = realSkillsData.skills.length > 0 
+    ? `\n\nРЕАЛЬНЫЕ НАВЫКИ ИЗ ВАКАНСИЙ HH.RU (${realSkillsData.skills.length} топ навыков):\n${realSkillsData.skills.slice(0, 15).join(', ')}`
+    : '';
+  
+  const skillsList = currentSkills.map(s => `${s.name} (${s.level}%)`).join(', ');
+  const stackList = stack.join(', ');
+  
+  const prompt = `Ты AI-ассистент для карьерного консультирования. Создай ДРЕВОВИДНУЮ карьерную roadmap для профессии "${profession}" уровня ${level}.
+
+ВАЖНО: Вместо линейного пути (Junior → Senior) создай структуру, где:
+1. Корень - текущая позиция "${profession}"
+2. Ветви - возможные пути развития на основе РАЗНЫХ навыков
+3. Каждый путь показывает конкретные навыки, которые нужно развить
+4. Покажи связанные профессии и вакансии
+
+Текущие навыки специалиста: ${skillsList}
+Текущий стек: ${stackList}${realSkillsList}
+
+ВАЖНО: Используй реальные навыки из вакансий hh.ru при создании путей развития. Навыки должны быть актуальными и востребованными на рынке.
+
+Примеры путей развития:
+- Для Frontend Developer: Fullstack (через Node.js), Mobile Developer (через React Native), UI/UX Designer (через дизайн), Tech Lead (через управление)
+- Для DevOps: SRE (через углубление в надежность), Cloud Architect (через AWS/Azure), Security Engineer (через безопасность)
+- Для не IT профессий: переход в смежные специальности через развитие конкретных навыков
+
+Формат JSON:
+{
+  "currentRole": {
+    "title": "${profession}",
+    "skills": ["основной навык1", "основной навык2", "основной навык3"],
+    "level": "${level}"
+  },
+  "paths": [
+    {
+      "id": "path1",
+      "title": "Название следующей роли (например: Fullstack Developer)",
+      "type": "vertical|horizontal|alternative",
+      "skills": ["навык1", "навык2"],
+      "skillsRequired": ["конкретный навык для развития", "еще один навык"],
+      "timeToReach": "1-2 года",
+      "salaryRange": "120 000 - 180 000 ₽",
+      "relatedProfessions": ["связанная профессия1", "связанная профессия2"],
+      "difficulty": "easy|medium|hard",
+      "benefits": ["что дает этот путь", "преимущество 2"],
+      "description": "краткое описание пути (1-2 предложения)"
+    }
+  ],
+  "skillTree": {
+    "skills": [
+      {
+        "id": "skill1",
+        "name": "название навыка",
+        "level": 60,
+        "description": "что дает этот навык",
+        "opensRoles": ["path1", "path2"]
+      }
+    ]
+  }
+}
+
+Создай 4-6 различных путей развития. Пути должны быть реалистичными и основанными на навыках, а не только на грейдах.`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.0-flash',
+      contents: prompt,
+      config: {
+        temperature: 0.8,
+        responseMimeType: 'application/json',
+      },
+    });
+
+    const result = JSON.parse(response.text || '{}');
+    
+    // Добавляем ID к путям, если их нет
+    if (result.paths && Array.isArray(result.paths)) {
+      result.paths = result.paths.map((path: any, index: number) => ({
+        ...path,
+        id: path.id || `path-${index + 1}`,
+      }));
+    }
+    
+    if (onProgress) onProgress('Roadmap сгенерирована ✅', 79);
+    return result;
+  } catch (error: any) {
+    console.error('Career tree generation error:', error);
+    // Возвращаем базовую структуру в случае ошибки
+    return {
+      currentRole: {
+        title: profession,
+        skills: currentSkills.map(s => s.name),
+        level: level,
+      },
+      paths: [],
+      skillTree: { skills: [] },
+    };
+  }
+}
+
+// Получение количества вакансий для профессии
+async function getVacanciesCount(profession: string, location?: 'moscow' | 'spb' | 'other' | 'remote'): Promise<number> {
+  try {
+    const areaId = location ? (() => {
+      switch(location) {
+        case 'moscow': return '1';
+        case 'spb': return '2';
+        case 'remote': return '113';
+        default: return '113';
+      }
+    })() : '113';
+    
+    const response = await fetch(
+      `https://api.hh.ru/vacancies?text=${encodeURIComponent(profession)}&per_page=1&area=${areaId}${location === 'remote' ? '&schedule=remote' : ''}`
+    );
+    const data = await response.json();
+    return data.found || 0;
+  } catch (error) {
+    console.error(`Error fetching vacancies for ${profession}:`, error);
+    return 0;
+  }
+}
+
+// Получение навыков из реальных вакансий hh.ru
+export async function fetchRealSkillsFromVacancies(
+  profession: string,
+  location?: 'moscow' | 'spb' | 'other' | 'remote',
+  limit: number = 20
+): Promise<{ skills: string[]; skillFrequency: Record<string, number> }> {
+  try {
+    const areaId = location ? (() => {
+      switch(location) {
+        case 'moscow': return '1';
+        case 'spb': return '2';
+        case 'remote': return '113';
+        default: return '113';
+      }
+    })() : '113';
+    
+    // Получаем список вакансий
+    const listResponse = await fetch(
+      `https://api.hh.ru/vacancies?text=${encodeURIComponent(profession)}&per_page=${limit}&order_by=relevance&area=${areaId}${location === 'remote' ? '&schedule=remote' : ''}`
+    );
+    const listData = await listResponse.json();
+    
+    if (!listData.items || listData.items.length === 0) {
+      return { skills: [], skillFrequency: {} };
+    }
+    
+    // Получаем детальную информацию о вакансиях (с навыками)
+    const skillFrequency: Record<string, number> = {};
+    const vacancyIds = listData.items.slice(0, Math.min(limit, 10)).map((item: any) => item.id);
+    
+    // Делаем запросы с задержкой, чтобы не превысить лимит 10 запросов/сек
+    for (const vacancyId of vacancyIds) {
+      try {
+        await new Promise(resolve => setTimeout(resolve, 150)); // Задержка 150ms между запросами
+        
+        const detailResponse = await fetch(`https://api.hh.ru/vacancies/${vacancyId}`);
+        const detailData = await detailResponse.json();
+        
+        if (detailData.key_skills && Array.isArray(detailData.key_skills)) {
+          detailData.key_skills.forEach((skill: { name: string }) => {
+            const skillName = skill.name.trim();
+            if (skillName) {
+              skillFrequency[skillName] = (skillFrequency[skillName] || 0) + 1;
+            }
+          });
+        }
+      } catch (error) {
+        console.error(`Error fetching vacancy ${vacancyId}:`, error);
+        // Продолжаем обработку других вакансий
+      }
+    }
+    
+    // Сортируем навыки по частоте и берем топ
+    const sortedSkills = Object.entries(skillFrequency)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 20)
+      .map(([skill]) => skill);
+    
+    return {
+      skills: sortedSkills,
+      skillFrequency,
+    };
+  } catch (error) {
+    console.error(`Error fetching skills from vacancies for ${profession}:`, error);
+    return { skills: [], skillFrequency: {} };
+  }
+}
+
 // Основная функция генерации карточки
 export async function generateCard(
   profession: string,
@@ -776,7 +983,36 @@ export async function generateCard(
   
   if (onProgress) onProgress('Завершаю генерацию...', 80);
   
-  // 5. Генерация звуков (опционально)
+  // 5. Генерация древовидной roadmap
+  let careerTree = null;
+  try {
+    careerTree = await generateCareerTree(
+      profession,
+      level,
+      data.skills || [],
+      data.stack || [],
+      data.isIT || false,
+      onProgress,
+      location
+    );
+    
+    // Добавляем количество вакансий для каждого пути (параллельно)
+    if (careerTree && careerTree.paths && careerTree.paths.length > 0) {
+      const vacanciesPromises = careerTree.paths.map(async (path: any) => {
+        if (!path.vacancies) {
+          const count = await getVacanciesCount(path.title, location);
+          return { ...path, vacancies: count };
+        }
+        return path;
+      });
+      careerTree.paths = await Promise.all(vacanciesPromises);
+    }
+  } catch (error: any) {
+    console.error('Error generating career tree:', error.message);
+    // Не прерываем генерацию из-за ошибки roadmap
+  }
+  
+  // 6. Генерация звуков (опционально)
   let audioData = null;
   if (generateAudio) {
     try {
@@ -806,7 +1042,7 @@ export async function generateCard(
   
   if (onProgress) onProgress('Финализирую...', 95);
   
-  // 6. Объединяем всё в один объект
+  // 7. Объединяем всё в один объект
   const fullData = {
     ...data,
     slug,
@@ -814,6 +1050,7 @@ export async function generateCard(
     ...vacanciesStats,
     videos,
     ...(audioData ? { audio: audioData } : {}),
+    ...(careerTree ? { careerTree } : {}),
     generatedAt: new Date().toISOString(),
     // Сохраняем контекстные параметры
     companySize: companySize || undefined,
@@ -821,7 +1058,7 @@ export async function generateCard(
     specialization: specialization || undefined,
   };
 
-  // 7. Сохраняем в кеш
+  // 8. Сохраняем в кеш
   await saveCardToCache(fullData, slug);
   
   if (onProgress) onProgress('Генерация завершена! ✅', 100);

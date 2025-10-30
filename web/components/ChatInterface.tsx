@@ -182,8 +182,8 @@ export default function ChatInterface({ onClose }: { onClose?: () => void }) {
         <div ref={messagesEndRef} />
       </div>
 
-      <div className="border-t border-hh-gray-200 bg-white px-4 pt-3 pb-5 safe-area-inset-bottom sm:px-6 sm:pb-6">
-        <form onSubmit={handleSubmit} className="flex items-end gap-2">
+      <div className="border-t border-hh-gray-200 bg-white px-4 pt-3 pb-16 safe-area-inset-bottom sm:px-6 sm:pb-20">
+        <form onSubmit={handleSubmit} className="flex items-end gap-2 mb-1">
           <input
             type="text"
             value={inputValue}

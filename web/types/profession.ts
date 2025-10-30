@@ -20,6 +20,43 @@ export interface CareerStage {
   current?: boolean;
 }
 
+// Древовидная структура roadmap на основе навыков
+export interface SkillNode {
+  id: string;
+  name: string;
+  level: number; // 0-100
+  description: string;
+  opensRoles?: string[]; // ID ролей, которые открывает этот навык
+}
+
+export interface CareerPathNode {
+  id: string;
+  title: string;
+  type: 'current' | 'vertical' | 'horizontal' | 'alternative';
+  skills: string[]; // Названия навыков для этой роли
+  skillsRequired: string[]; // Навыки, которые нужно развить
+  timeToReach: string;
+  salaryRange: string;
+  vacancies?: number;
+  relatedProfessions: string[];
+  difficulty: 'easy' | 'medium' | 'hard';
+  benefits: string[];
+  prerequisites?: string[]; // ID узлов-предшественников
+  description?: string;
+}
+
+export interface CareerTree {
+  currentRole: {
+    title: string;
+    skills: string[];
+    level: string;
+  };
+  paths: CareerPathNode[];
+  skillTree?: {
+    skills: SkillNode[];
+  };
+}
+
 export interface Skill {
   name: string;
   level: number;
@@ -49,7 +86,8 @@ export interface ProfessionData {
   schedule: ScheduleItem[];
   stack: string[];
   benefits: Benefit[];
-  careerPath: CareerStage[];
+  careerPath: CareerStage[]; // Старая линейная структура (для обратной совместимости)
+  careerTree?: CareerTree; // Новая древовидная структура
   skills: Skill[];
   dialog: Dialog;
   videos?: Video[];

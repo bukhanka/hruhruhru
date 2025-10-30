@@ -5,6 +5,8 @@ import Link from 'next/link';
 import Image from 'next/image';
 import TimelineAudioPlayer from '@/components/TimelineAudioPlayer';
 import VoiceChat from '@/components/VoiceChat';
+import CareerTreeComponent from '@/components/CareerTree';
+import { CareerTree } from '@/types/profession';
 
 const tabs = [
   { id: 'overview', label: 'Обзор', emoji: '👀' },
@@ -24,6 +26,7 @@ type ProfessionData = {
   stack?: string[];
   skills?: { name: string; level: number }[];
   careerPath?: { level: string; years: string; salary: string }[];
+  careerTree?: CareerTree;
   avgSalary?: number;
   vacancies?: number;
   competition?: string;
@@ -42,6 +45,8 @@ export default function ProfessionPage({ params }: { params: Promise<{ id: strin
   const [soundPlaying, setSoundPlaying] = useState(false);
   const [activeVideo, setActiveVideo] = useState(0);
   const [isVideoOverlayOpen, setVideoOverlayOpen] = useState(false);
+  const [isFavorite, setIsFavorite] = useState(false);
+  const [showShareToast, setShowShareToast] = useState(false);
 
   useEffect(() => {
     fetch(`/api/profession/${id}`)
@@ -50,6 +55,10 @@ export default function ProfessionPage({ params }: { params: Promise<{ id: strin
         setData(payload);
         setActiveVideo(0);
         setLoading(false);
+        
+        // Проверяем, есть ли профессия в избранном
+        const favorites = JSON.parse(localStorage.getItem('favoriteProfessions') || '[]');
+        setIsFavorite(favorites.includes(id));
       })
       .catch((error) => {
         console.error('Error loading profession:', error);
@@ -100,6 +109,75 @@ export default function ProfessionPage({ params }: { params: Promise<{ id: strin
 
   const closeVideo = () => {
     setVideoOverlayOpen(false);
+  };
+
+  const toggleFavorite = () => {
+    const favorites = JSON.parse(localStorage.getItem('favoriteProfessions') || '[]');
+    
+    if (isFavorite) {
+      // Удаляем из избранного
+      const newFavorites = favorites.filter((fav: string) => fav !== id);
+      localStorage.setItem('favoriteProfessions', JSON.stringify(newFavorites));
+      setIsFavorite(false);
+    } else {
+      // Добавляем в избранное
+      favorites.push(id);
+      localStorage.setItem('favoriteProfessions', JSON.stringify(favorites));
+      setIsFavorite(true);
+    }
+  };
+
+  const handleShare = async () => {
+    const shareUrl = `${window.location.origin}/profession/${id}`;
+    
+    // Пытаемся использовать Web Share API если доступен
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: data?.profession || 'Профессия',
+          text: `Посмотри вайб профессии ${data?.profession || ''}!`,
+          url: shareUrl,
+        });
+        return;
+      } catch (error) {
+        // Если пользователь отменил шаринг, ничего не делаем
+        if ((error as Error).name === 'AbortError') return;
+      }
+    }
+    
+    // Fallback: копируем ссылку в буфер обмена
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setShowShareToast(true);
+      setTimeout(() => setShowShareToast(false), 3000);
+    } catch (error) {
+      console.error('Failed to copy link:', error);
+    }
+  };
+
+  const handleDownloadPDF = async () => {
+    try {
+      // Открываем HTML-версию в новой вкладке для печати в PDF
+      const response = await fetch(`/api/profession/${id}/pdf`);
+      if (response.status === 501) {
+        // PDF генерация еще не реализована, используем window.print()
+        window.print();
+      } else {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${data?.profession || 'profession'}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+      }
+    } catch (error) {
+      console.error('PDF download error:', error);
+      // Fallback: открываем диалог печати браузера
+      window.print();
+    }
   };
 
   if (loading) {
@@ -359,23 +437,31 @@ export default function ProfessionPage({ params }: { params: Promise<{ id: strin
 
           <section id="career" className="scroll-mt-28 space-y-4">
             <ContentCard title="Карьерный путь" subtitle="Как будет развиваться твой вайб" padding="p-4 sm:p-6">
-              <div className="relative">
-                <div className="absolute left-4 top-10 bottom-10 w-px bg-hh-gray-200 md:left-1/2 md:-translate-x-1/2" />
-                <div className="flex flex-col gap-6 md:grid md:grid-cols-2">
-                  {data.careerPath?.map((stage, index) => (
-                    <div key={`${stage.level}-${index}`} className="relative pl-12 md:pl-0">
-                      <div className="absolute left-0 top-3 flex h-8 w-8 items-center justify-center rounded-full border-4 border-white bg-hh-red text-sm font-semibold text-white md:left-1/2 md:-translate-x-1/2">
-                        {index + 1}
+              {data.careerTree ? (
+                // Новая древовидная roadmap на основе навыков
+                <CareerTreeComponent careerTree={data.careerTree} />
+              ) : data.careerPath ? (
+                // Старая линейная roadmap (для обратной совместимости)
+                <div className="relative">
+                  <div className="absolute left-4 top-10 bottom-10 w-px bg-hh-gray-200 md:left-1/2 md:-translate-x-1/2" />
+                  <div className="flex flex-col gap-6 md:grid md:grid-cols-2">
+                    {data.careerPath.map((stage, index) => (
+                      <div key={`${stage.level}-${index}`} className="relative pl-12 md:pl-0">
+                        <div className="absolute left-0 top-3 flex h-8 w-8 items-center justify-center rounded-full border-4 border-white bg-hh-red text-sm font-semibold text-white md:left-1/2 md:-translate-x-1/2">
+                          {index + 1}
+                        </div>
+                        <div className="mt-6 rounded-2xl border border-hh-gray-200 bg-white p-4 shadow-sm">
+                          <p className="text-xs uppercase tracking-wide text-hh-red">{stage.years}</p>
+                          <h3 className="mt-2 text-base font-semibold text-text-primary">{stage.level}</h3>
+                          <p className="mt-2 text-sm text-text-secondary">{stage.salary}</p>
+                        </div>
                       </div>
-                      <div className="mt-6 rounded-2xl border border-hh-gray-200 bg-white p-4 shadow-sm">
-                        <p className="text-xs uppercase tracking-wide text-hh-red">{stage.years}</p>
-                        <h3 className="mt-2 text-base font-semibold text-text-primary">{stage.level}</h3>
-                        <p className="mt-2 text-sm text-text-secondary">{stage.salary}</p>
-                      </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <p className="text-text-secondary">Информация о карьерном пути пока недоступна</p>
+              )}
             </ContentCard>
 
             {(data.avgSalary || data.topCompanies?.length) && (
@@ -492,8 +578,27 @@ export default function ProfessionPage({ params }: { params: Promise<{ id: strin
               >
                 ← Выбрать другую профессию
               </Link>
-              <button className="rounded-full bg-hh-red px-6 py-2 text-sm font-medium text-white shadow-[0_10px_25px_rgba(255,0,0,0.25)] transition hover:bg-hh-red-dark">
-                Скачать PDF карточку
+              <button
+                onClick={toggleFavorite}
+                className={`rounded-full border px-4 py-2 text-sm font-medium transition ${
+                  isFavorite
+                    ? 'border-hh-red bg-hh-red text-white hover:bg-hh-red-dark'
+                    : 'border-hh-gray-200 text-text-primary hover:border-hh-red hover:text-hh-red'
+                }`}
+              >
+                {isFavorite ? '⭐ В избранном' : '☆ Добавить в избранное'}
+              </button>
+              <button
+                onClick={handleShare}
+                className="rounded-full border border-hh-gray-200 px-4 py-2 text-sm font-medium text-text-primary transition hover:border-hh-red hover:text-hh-red"
+              >
+                🔗 Поделиться
+              </button>
+              <button
+                onClick={handleDownloadPDF}
+                className="rounded-full bg-hh-red px-6 py-2 text-sm font-medium text-white shadow-[0_10px_25px_rgba(255,0,0,0.25)] transition hover:bg-hh-red-dark"
+              >
+                📥 Скачать PDF карточку
               </button>
             </div>
             {data.generatedAt && <p>Сгенерировано: {new Date(data.generatedAt).toLocaleString('ru-RU')}</p>}
@@ -518,6 +623,12 @@ export default function ProfessionPage({ params }: { params: Promise<{ id: strin
       </div>
       {isVideoOverlayOpen && currentVideo && (
         <VideoOverlay video={currentVideo} onClose={closeVideo} />
+      )}
+      
+      {showShareToast && (
+        <div className="fixed bottom-24 left-1/2 z-50 -translate-x-1/2 transform animate-fade-in-up rounded-full bg-[#00a854] px-6 py-3 text-sm font-medium text-white shadow-lg">
+          ✅ Ссылка скопирована в буфер обмена!
+        </div>
       )}
       
       <VoiceChat 

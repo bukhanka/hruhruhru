@@ -64,15 +64,16 @@ export default function Home() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button
+            <Link
+              href="/favorites"
               aria-label="Открыть избранное"
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-hh-gray-50 text-xl"
+              className="flex h-10 w-10 items-center justify-center rounded-full bg-hh-gray-50 text-xl transition hover:bg-hh-red/10"
             >
               ⭐
-            </button>
+            </Link>
             <button
               aria-label="Открыть настройки"
-              className="flex h-10 w-10 items-center justify-center rounded-full border border-hh-gray-200 text-xl"
+              className="flex h-10 w-10 items-center justify-center rounded-full border border-hh-gray-200 text-xl transition hover:border-hh-red"
             >
               ⚙️
             </button>
@@ -278,17 +279,24 @@ export default function Home() {
 
       <nav className="fixed bottom-0 left-0 right-0 z-40 border-t border-hh-gray-200 bg-white/95 backdrop-blur-lg safe-area-inset-bottom md:hidden">
         <div className="mx-auto flex h-16 max-w-5xl items-center justify-around">
-          {bottomNavItems.map((item) => (
-            <button
-              key={item.label}
-              className={`flex h-full flex-1 flex-col items-center justify-center text-xs font-medium transition-colors ${
-                item.label === 'Главная' ? 'text-hh-red' : 'text-text-secondary'
-              }`}
-            >
-              <span className="text-lg">{item.icon}</span>
-              {item.label}
-            </button>
-          ))}
+          {bottomNavItems.map((item) => {
+            const isActive = item.label === 'Главная';
+            const Component = item.label === 'Избранное' ? Link : 'button';
+            const props = item.label === 'Избранное' ? { href: '/favorites' } : {};
+            
+            return (
+              <Component
+                key={item.label}
+                {...props}
+                className={`flex h-full flex-1 flex-col items-center justify-center text-xs font-medium transition-colors ${
+                  isActive ? 'text-hh-red' : 'text-text-secondary hover:text-hh-red'
+                }`}
+              >
+                <span className="text-lg">{item.icon}</span>
+                {item.label}
+              </Component>
+            );
+          })}
         </div>
       </nav>
 
