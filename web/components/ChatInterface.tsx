@@ -37,6 +37,8 @@ export default function ChatInterface({ onClose }: { onClose?: () => void }) {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadGreeting = async () => {
+    const startTime = Date.now();
+    console.log('[Chat] Загрузка приветствия...');
     setTyping(true);
     try {
       const response = await fetch('/api/chat', {
@@ -51,6 +53,13 @@ export default function ChatInterface({ onClose }: { onClose?: () => void }) {
 
       if (response.ok) {
         const data = await response.json();
+        console.log('[Chat] Приветствие получено', { 
+          duration: Date.now() - startTime,
+          messageType: data.message.type,
+          hasButtons: !!data.message.buttons,
+          hasCards: !!data.message.cards
+        });
+        
         if (data.persona) {
           setPersona(data.persona);
         }
@@ -65,9 +74,11 @@ export default function ChatInterface({ onClose }: { onClose?: () => void }) {
           cards: data.message.cards,
           metadata: data.message.metadata,
         });
+      } else {
+        console.error('[Chat] Ошибка загрузки приветствия', { status: response.status });
       }
     } catch (error) {
-      console.error('Error loading greeting:', error);
+      console.error('[Chat] Ошибка загрузки приветствия:', error);
     } finally {
       setTyping(false);
     }
@@ -75,6 +86,13 @@ export default function ChatInterface({ onClose }: { onClose?: () => void }) {
 
   const sendMessage = async (text: string) => {
     if (!text.trim()) return;
+
+    const startTime = Date.now();
+    console.log('[Chat] Отправка сообщения', { 
+      text: text.substring(0, 50) + (text.length > 50 ? '...' : ''),
+      messagesCount: messages.length,
+      hasPersona: !!persona
+    });
 
     // Add user message
     addMessage({
@@ -103,6 +121,15 @@ export default function ChatInterface({ onClose }: { onClose?: () => void }) {
       }
 
       const data = await response.json();
+      const duration = Date.now() - startTime;
+
+      console.log('[Chat] Ответ получен', { 
+        duration,
+        messageType: data.message.type,
+        hasButtons: !!data.message.buttons,
+        hasCards: !!data.message.cards,
+        stage: data.stage
+      });
 
       // Проверяем наличие сообщения в ответе
       if (!data.message) {
@@ -112,9 +139,11 @@ export default function ChatInterface({ onClose }: { onClose?: () => void }) {
       // Update persona and stage
       if (data.persona) {
         setPersona(data.persona);
+        console.log('[Chat] Persona обновлена', { persona: data.persona });
       }
       if (data.stage) {
         setConversationStage(data.stage);
+        console.log('[Chat] Stage обновлен', { stage: data.stage });
       }
 
       // Add assistant response
@@ -127,7 +156,8 @@ export default function ChatInterface({ onClose }: { onClose?: () => void }) {
         metadata: data.message.metadata, // Сохраняем metadata для отслеживания уточняющих вопросов
       });
     } catch (error) {
-      console.error('Error sending message:', error);
+      const duration = Date.now() - startTime;
+      console.error('[Chat] Ошибка отправки сообщения', { error, duration });
       const errorMessage = error instanceof Error ? error.message : 'Неизвестная ошибка';
       addMessage({
         role: 'assistant',
@@ -145,10 +175,12 @@ export default function ChatInterface({ onClose }: { onClose?: () => void }) {
   };
 
   const handleButtonClick = (buttonText: string) => {
+    console.log('[Chat] Клик по кнопке', { buttonText });
     sendMessage(buttonText);
   };
 
   const handleNewChat = () => {
+    console.log('[Chat] Новый диалог');
     clearChat();
     greetingLoadedRef.current = false; // Сбрасываем флаг для нового диалога
     // Загружаем приветствие для нового диалога

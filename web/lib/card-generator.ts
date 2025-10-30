@@ -2,15 +2,24 @@ import { GoogleGenAI, Type } from "@google/genai";
 import * as fs from "fs";
 import * as path from "path";
 import "./proxy-config"; // Настройка прокси
+import { logger } from "./logger";
 
 // Инициализация клиента Google AI
 let aiClient: GoogleGenAI | null = null;
 
+// Кеш для определения типа профессии (IT/не IT)
+const professionTypeCache = new Map<string, boolean>();
+
+// Кеш для промптов изображений
+const imagePromptsCache = new Map<string, any>();
+
 function getAIClient(): GoogleGenAI {
   if (!aiClient) {
     if (!process.env.GOOGLE_API_KEY) {
+      logger.error('GOOGLE_API_KEY не найден', undefined, { context: 'getAIClient' });
       throw new Error('GOOGLE_API_KEY не найден в переменных окружения');
     }
+    logger.info('Инициализация GoogleGenAI клиента', { hasProxy: !!process.env.HTTP_PROXY });
     aiClient = new GoogleGenAI({
       apiKey: process.env.GOOGLE_API_KEY,
     });
@@ -44,33 +53,59 @@ function extractErrorMessage(error: any): string {
 async function withRetry<T>(
   fn: () => Promise<T>,
   maxRetries: number = 3,
-  delayMs: number = 1000
+  delayMs: number = 1000,
+  operationName?: string
 ): Promise<T> {
+  const startTime = Date.now();
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      return await fn();
+      const result = await fn();
+      const duration = Date.now() - startTime;
+      if (operationName) {
+        logger.apiSuccess('GoogleAI', operationName, duration);
+      }
+      return result;
     } catch (error: any) {
       const isLastAttempt = attempt === maxRetries;
       const errorMessage = extractErrorMessage(error);
       
       // Некоторые ошибки не стоит повторять (например, ошибки локации)
       if (errorMessage.includes('location') || errorMessage.includes('FAILED_PRECONDITION')) {
+        logger.error(`API недоступен в регионе: ${errorMessage}`, error, { operation: operationName, attempt });
         throw new Error(`Ошибка API: ${errorMessage}. Возможно, API недоступен в вашем регионе.`);
       }
       
       if (isLastAttempt) {
+        const duration = Date.now() - startTime;
+        logger.apiError('GoogleAI', operationName || 'unknown', error, duration, { attempts: maxRetries });
         throw new Error(`Ошибка после ${maxRetries} попыток: ${errorMessage}`);
       }
       
-      console.log(`Попытка ${attempt} не удалась: ${errorMessage}. Повторяю через ${delayMs}ms...`);
+      logger.warn(`Попытка ${attempt}/${maxRetries} не удалась`, { 
+        operation: operationName, 
+        error: errorMessage,
+        retryIn: `${delayMs}ms`
+      });
       await new Promise(resolve => setTimeout(resolve, delayMs));
     }
   }
   throw new Error('Unreachable');
 }
 
-// Функция определения IT/не IT профессии
+// Функция определения IT/не IT профессии (с кешированием)
 export async function determineProfessionType(profession: string): Promise<boolean> {
+  const startTime = Date.now();
+  logger.trace('determineProfessionType', { profession });
+  
+  // Проверяем кеш
+  const cacheKey = profession.toLowerCase().trim();
+  if (professionTypeCache.has(cacheKey)) {
+    const cached = professionTypeCache.get(cacheKey)!;
+    logger.debug('Использован кеш для определения типа профессии', { profession, isIT: cached });
+    logger.traceEnd('determineProfessionType', { isIT: cached }, Date.now() - startTime);
+    return cached;
+  }
+  
   const itKeywords = [
     'developer', 'разработчик', 'программист', 'engineer', 'инженер',
     'devops', 'системный администратор', 'сисадмин', 'qa', 'тестировщик',
@@ -86,6 +121,9 @@ export async function determineProfessionType(profession: string): Promise<boole
   const hasITKeyword = itKeywords.some(keyword => professionLower.includes(keyword));
   
   if (hasITKeyword) {
+    professionTypeCache.set(cacheKey, true);
+    logger.debug('Определен тип профессии по ключевым словам', { profession, isIT: true });
+    logger.traceEnd('determineProfessionType', { isIT: true }, Date.now() - startTime);
     return true;
   }
   
@@ -103,6 +141,7 @@ IT-профессии связаны с разработкой программ�
   "isIT": true или false
 }`;
 
+    logger.apiCall('GoogleAI', 'determineProfessionType', { profession });
     const response = await ai.models.generateContent({
       model: 'gemini-2.0-flash',
       contents: prompt,
@@ -113,10 +152,18 @@ IT-профессии связаны с разработкой программ�
     });
 
     const result = JSON.parse(response.text || '{"isIT": false}');
-    return result.isIT === true;
+    const isIT = result.isIT === true;
+    
+    // Сохраняем в кеш
+    professionTypeCache.set(cacheKey, isIT);
+    
+    logger.debug('Определен тип профессии через AI', { profession, isIT });
+    logger.traceEnd('determineProfessionType', { isIT }, Date.now() - startTime);
+    return isIT;
   } catch (error: any) {
-    console.error('Ошибка определения типа профессии:', error);
+    logger.error('Ошибка определения типа профессии', error, { profession });
     // По умолчанию считаем не IT, если не можем определить
+    professionTypeCache.set(cacheKey, false);
     return false;
   }
 }
@@ -142,27 +189,43 @@ export function transliterate(text: string): string {
 
 // Проверка кеша
 export async function getCachedCard(slug: string): Promise<any | null> {
+  const startTime = Date.now();
+  logger.trace('getCachedCard', { slug });
   try {
     const filePath = path.join(process.cwd(), 'data', 'professions', `${slug}.json`);
     if (fs.existsSync(filePath)) {
       const content = await fs.promises.readFile(filePath, 'utf-8');
-      return JSON.parse(content);
+      const data = JSON.parse(content);
+      logger.info('Карточка найдена в кеше', { slug, duration: Date.now() - startTime });
+      logger.traceEnd('getCachedCard', { found: true }, Date.now() - startTime);
+      return data;
     }
+    logger.debug('Карточка не найдена в кеше', { slug });
   } catch (error) {
-    console.error('Error reading cache:', error);
+    logger.error('Ошибка чтения кеша', error, { slug });
   }
+  logger.traceEnd('getCachedCard', { found: false }, Date.now() - startTime);
   return null;
 }
 
 // Сохранение в кеш
 export async function saveCardToCache(data: any, slug: string): Promise<void> {
-  const dataDir = path.join(process.cwd(), 'data', 'professions');
-  if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
+  const startTime = Date.now();
+  logger.trace('saveCardToCache', { slug });
+  try {
+    const dataDir = path.join(process.cwd(), 'data', 'professions');
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
+    }
+    
+    const filePath = path.join(dataDir, `${slug}.json`);
+    await fs.promises.writeFile(filePath, JSON.stringify(data, null, 2), 'utf-8');
+    logger.info('Карточка сохранена в кеш', { slug, duration: Date.now() - startTime });
+    logger.traceEnd('saveCardToCache', {}, Date.now() - startTime);
+  } catch (error) {
+    logger.error('Ошибка сохранения в кеш', error, { slug });
+    throw error;
   }
-  
-  const filePath = path.join(dataDir, `${slug}.json`);
-  await fs.promises.writeFile(filePath, JSON.stringify(data, null, 2), 'utf-8');
 }
 
 // Генерация данных профессии
@@ -175,6 +238,9 @@ export async function generateProfessionData(
   location?: 'moscow' | 'spb' | 'other' | 'remote',
   specialization?: string
 ) {
+  const startTime = Date.now();
+  logger.trace('generateProfessionData', { profession, level, company, companySize, location, specialization });
+  
   if (onProgress) onProgress('Определяю тип профессии...', 5);
   
   // Определяем тип профессии
@@ -337,6 +403,7 @@ ${!isIT ? `
   
   return await withRetry(async () => {
     try {
+      logger.apiCall('GoogleAI', 'generateProfessionData', { profession, isIT });
       const response = await ai.models.generateContent({
         model: "gemini-2.0-flash",
         contents: prompt,
@@ -352,16 +419,22 @@ ${!isIT ? `
       const data = JSON.parse(jsonText);
       // Добавляем флаг isIT к данным
       data.isIT = isIT;
+      
+      const duration = Date.now() - startTime;
+      logger.performance('generateProfessionData', duration, { profession, isIT });
+      logger.traceEnd('generateProfessionData', { success: true }, duration);
+      
       return data;
     } catch (error: any) {
       // Пробрасываем ошибку через extractErrorMessage для корректной обработки
       const errorMessage = extractErrorMessage(error);
+      logger.error('Ошибка генерации данных профессии', error, { profession, errorMessage });
       throw new Error(errorMessage);
     }
-  }, 3, 2000);
+  }, 3, 2000, 'generateProfessionData');
 }
 
-// Генерация детальных описаний профессии для промптов изображений
+// Генерация детальных описаний профессии для промптов изображений (с кешированием)
 async function generateProfessionImageDetails(
   profession: string,
   professionDescription?: string
@@ -383,6 +456,17 @@ async function generateProfessionImageDetails(
   surroundingEnvironment: string;
   teamOrClients: string;
 }> {
+  const startTime = Date.now();
+  const cacheKey = `${profession.toLowerCase()}_${professionDescription || ''}`;
+  
+  // Проверяем кеш
+  if (imagePromptsCache.has(cacheKey)) {
+    const cached = imagePromptsCache.get(cacheKey)!;
+    logger.debug('Использован кеш для промптов изображений', { profession, duration: Date.now() - startTime });
+    return cached;
+  }
+  
+  logger.trace('generateProfessionImageDetails', { profession, professionDescription });
   const ai = getAIClient();
   
   const prompt = `Ты эксперт по визуализации профессиональных сцен. Для профессии "${profession}"${professionDescription ? ` (${professionDescription})` : ''} создай детальное описание ключевых визуальных элементов для генерации изображений.
@@ -410,6 +494,7 @@ async function generateProfessionImageDetails(
 }`;
 
   try {
+    logger.apiCall('GoogleAI', 'generateProfessionImageDetails', { profession });
     const response = await ai.models.generateContent({
       model: 'gemini-2.0-flash',
       contents: prompt,
@@ -422,7 +507,7 @@ async function generateProfessionImageDetails(
     const result = JSON.parse(response.text || '{}');
     
     // Возвращаем результат с дефолтными значениями на случай отсутствия некоторых полей
-    return {
+    const details = {
       mainActivity: result.mainActivity || `${profession} выполняет основные рабочие задачи`,
       specificTools: result.specificTools || `профессиональные инструменты для ${profession}`,
       workplaceSetting: result.workplaceSetting || `рабочее место ${profession}`,
@@ -440,10 +525,19 @@ async function generateProfessionImageDetails(
       surroundingEnvironment: result.surroundingEnvironment || `рабочая среда ${profession}`,
       teamOrClients: result.teamOrClients || `коллеги или клиенты ${profession}`,
     };
+    
+    // Сохраняем в кеш
+    imagePromptsCache.set(cacheKey, details);
+    
+    const duration = Date.now() - startTime;
+    logger.performance('generateProfessionImageDetails', duration, { profession });
+    logger.traceEnd('generateProfessionImageDetails', { success: true }, duration);
+    
+    return details;
   } catch (error: any) {
-    console.error('Ошибка генерации деталей профессии для изображений:', error);
+    logger.error('Ошибка генерации деталей профессии для изображений', error, { profession });
     // Возвращаем базовые значения в случае ошибки
-    return {
+    const fallback = {
       mainActivity: `${profession} выполняет основные рабочие задачи`,
       specificTools: `профессиональные инструменты для ${profession}`,
       workplaceSetting: `рабочее место ${profession}`,
@@ -461,6 +555,8 @@ async function generateProfessionImageDetails(
       surroundingEnvironment: `рабочая среда ${profession}`,
       teamOrClients: `коллеги или клиенты ${profession}`,
     };
+    imagePromptsCache.set(cacheKey, fallback);
+    return fallback;
   }
 }
 
@@ -607,6 +703,9 @@ export async function fetchVacanciesStats(
   onProgress?: (message: string, progress: number) => void,
   location?: 'moscow' | 'spb' | 'other' | 'remote'
 ) {
+  const startTime = Date.now();
+  logger.trace('fetchVacanciesStats', { profession, location });
+  
   if (onProgress) onProgress('Получаю статистику вакансий...', 77);
   
   // Определяем area ID для HH.ru API
@@ -621,6 +720,7 @@ export async function fetchVacanciesStats(
   })() : '113';
   
   try {
+    logger.apiCall('HH.ru', 'vacancies/stats', { profession, areaId });
     const response = await fetch(
       `https://api.hh.ru/vacancies?text=${encodeURIComponent(profession)}&per_page=20&order_by=relevance&area=${areaId}${location === 'remote' ? '&schedule=remote' : ''}`
     );
@@ -658,6 +758,10 @@ export async function fetchVacanciesStats(
     
     const topCompanies = [...new Set(companies)].slice(0, 5);
     
+    const duration = Date.now() - startTime;
+    logger.performance('fetchVacanciesStats', duration, { profession, vacancies: found, avgSalary });
+    logger.traceEnd('fetchVacanciesStats', { vacancies: found, competition, avgSalary }, duration);
+    
     if (onProgress) onProgress('Статистика вакансий получена ✅', 85);
     
     return {
@@ -667,7 +771,7 @@ export async function fetchVacanciesStats(
       topCompanies,
     };
   } catch (error: any) {
-    console.error('Ошибка получения вакансий:', error.message);
+    logger.error('Ошибка получения статистики вакансий', error, { profession, errorMessage: error.message });
     if (onProgress) onProgress('Статистика вакансий получена ✅', 85);
     return {
       vacancies: 0,
@@ -734,6 +838,9 @@ export async function generateCareerTree(
   onProgress?: (message: string, progress: number) => void,
   location?: 'moscow' | 'spb' | 'other' | 'remote'
 ): Promise<any> {
+  const startTime = Date.now();
+  logger.trace('generateCareerTree', { profession, level, isIT, location });
+  
   if (onProgress) onProgress('Генерирую древовидную roadmap...', 78);
   
   const ai = getAIClient();
@@ -804,6 +911,7 @@ export async function generateCareerTree(
 Создай 4-6 различных путей развития. Пути должны быть реалистичными и основанными на навыках, а не только на грейдах.`;
 
   try {
+    logger.apiCall('GoogleAI', 'generateCareerTree', { profession });
     const response = await ai.models.generateContent({
       model: 'gemini-2.0-flash',
       contents: prompt,
@@ -823,10 +931,14 @@ export async function generateCareerTree(
       }));
     }
     
+    const duration = Date.now() - startTime;
+    logger.performance('generateCareerTree', duration, { profession, pathsCount: result.paths?.length || 0 });
+    logger.traceEnd('generateCareerTree', { success: true, pathsCount: result.paths?.length || 0 }, duration);
+    
     if (onProgress) onProgress('Roadmap сгенерирована ✅', 79);
     return result;
   } catch (error: any) {
-    console.error('Career tree generation error:', error);
+    logger.error('Ошибка генерации карьерного дерева', error, { profession });
     // Возвращаем базовую структуру в случае ошибки
     return {
       currentRole: {
@@ -842,6 +954,7 @@ export async function generateCareerTree(
 
 // Получение количества вакансий для профессии
 async function getVacanciesCount(profession: string, location?: 'moscow' | 'spb' | 'other' | 'remote'): Promise<number> {
+  const startTime = Date.now();
   try {
     const areaId = location ? (() => {
       switch(location) {
@@ -852,23 +965,31 @@ async function getVacanciesCount(profession: string, location?: 'moscow' | 'spb'
       }
     })() : '113';
     
+    logger.apiCall('HH.ru', 'vacancies/count', { profession, areaId });
     const response = await fetch(
       `https://api.hh.ru/vacancies?text=${encodeURIComponent(profession)}&per_page=1&area=${areaId}${location === 'remote' ? '&schedule=remote' : ''}`
     );
     const data = await response.json();
-    return data.found || 0;
+    const count = data.found || 0;
+    
+    const duration = Date.now() - startTime;
+    logger.debug('Получено количество вакансий', { profession, count, duration });
+    return count;
   } catch (error) {
-    console.error(`Error fetching vacancies for ${profession}:`, error);
+    logger.error(`Ошибка получения количества вакансий`, error, { profession });
     return 0;
   }
 }
 
-// Получение навыков из реальных вакансий hh.ru
+// Получение навыков из реальных вакансий hh.ru (оптимизировано с батчингом)
 export async function fetchRealSkillsFromVacancies(
   profession: string,
   location?: 'moscow' | 'spb' | 'other' | 'remote',
   limit: number = 20
 ): Promise<{ skills: string[]; skillFrequency: Record<string, number> }> {
+  const startTime = Date.now();
+  logger.trace('fetchRealSkillsFromVacancies', { profession, location, limit });
+  
   try {
     const areaId = location ? (() => {
       switch(location) {
@@ -880,12 +1001,14 @@ export async function fetchRealSkillsFromVacancies(
     })() : '113';
     
     // Получаем список вакансий
+    logger.apiCall('HH.ru', 'vacancies/search', { profession, areaId });
     const listResponse = await fetch(
       `https://api.hh.ru/vacancies?text=${encodeURIComponent(profession)}&per_page=${limit}&order_by=relevance&area=${areaId}${location === 'remote' ? '&schedule=remote' : ''}`
     );
     const listData = await listResponse.json();
     
     if (!listData.items || listData.items.length === 0) {
+      logger.debug('Вакансии не найдены', { profession });
       return { skills: [], skillFrequency: {} };
     }
     
@@ -893,25 +1016,40 @@ export async function fetchRealSkillsFromVacancies(
     const skillFrequency: Record<string, number> = {};
     const vacancyIds = listData.items.slice(0, Math.min(limit, 10)).map((item: any) => item.id);
     
-    // Делаем запросы с задержкой, чтобы не превысить лимит 10 запросов/сек
-    for (const vacancyId of vacancyIds) {
-      try {
-        await new Promise(resolve => setTimeout(resolve, 150)); // Задержка 150ms между запросами
-        
-        const detailResponse = await fetch(`https://api.hh.ru/vacancies/${vacancyId}`);
-        const detailData = await detailResponse.json();
-        
-        if (detailData.key_skills && Array.isArray(detailData.key_skills)) {
-          detailData.key_skills.forEach((skill: { name: string }) => {
-            const skillName = skill.name.trim();
-            if (skillName) {
-              skillFrequency[skillName] = (skillFrequency[skillName] || 0) + 1;
-            }
-          });
+    logger.info(`Получение навыков из ${vacancyIds.length} вакансий`, { profession, vacancyCount: vacancyIds.length });
+    
+    // Оптимизация: делаем запросы батчами по 5 параллельно с небольшой задержкой между батчами
+    // Это быстрее чем последовательно, но не превышает лимит 10 запросов/сек
+    const batchSize = 5;
+    for (let i = 0; i < vacancyIds.length; i += batchSize) {
+      const batch = vacancyIds.slice(i, i + batchSize);
+      
+      // Параллельно обрабатываем батч
+      const batchPromises = batch.map(async (vacancyId: string) => {
+        try {
+          logger.debug(`Запрос деталей вакансии`, { vacancyId });
+          const detailResponse = await fetch(`https://api.hh.ru/vacancies/${vacancyId}`);
+          const detailData = await detailResponse.json();
+          
+          if (detailData.key_skills && Array.isArray(detailData.key_skills)) {
+            detailData.key_skills.forEach((skill: { name: string }) => {
+              const skillName = skill.name.trim();
+              if (skillName) {
+                skillFrequency[skillName] = (skillFrequency[skillName] || 0) + 1;
+              }
+            });
+          }
+        } catch (error) {
+          logger.error(`Ошибка получения вакансии`, error, { vacancyId });
+          // Продолжаем обработку других вакансий
         }
-      } catch (error) {
-        console.error(`Error fetching vacancy ${vacancyId}:`, error);
-        // Продолжаем обработку других вакансий
+      });
+      
+      await Promise.all(batchPromises);
+      
+      // Небольшая задержка между батчами, чтобы не превысить лимит
+      if (i + batchSize < vacancyIds.length) {
+        await new Promise(resolve => setTimeout(resolve, 200));
       }
     }
     
@@ -921,12 +1059,16 @@ export async function fetchRealSkillsFromVacancies(
       .slice(0, 20)
       .map(([skill]) => skill);
     
+    const duration = Date.now() - startTime;
+    logger.performance('fetchRealSkillsFromVacancies', duration, { profession, skillsFound: sortedSkills.length });
+    logger.traceEnd('fetchRealSkillsFromVacancies', { skillsCount: sortedSkills.length }, duration);
+    
     return {
       skills: sortedSkills,
       skillFrequency,
     };
   } catch (error) {
-    console.error(`Error fetching skills from vacancies for ${profession}:`, error);
+    logger.error(`Ошибка получения навыков из вакансий`, error, { profession });
     return { skills: [], skillFrequency: {} };
   }
 }

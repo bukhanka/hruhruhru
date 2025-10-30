@@ -5,6 +5,7 @@ import { ChatRequest, ChatResponse, UserPersona, Message } from '@/types/chat';
 import fs from 'fs';
 import path from 'path';
 import { setupProxy } from '@/lib/proxy-config'; // Настройка прокси
+import { logger } from '@/lib/logger';
 import { 
   generateCard, 
   transliterate, 
@@ -694,36 +695,174 @@ async function showProfessionImpact(profession: string): Promise<{ content: stri
   }
 }
 
-// Генерация уточняющего вопроса об уровне опыта
-async function generateLevelQuestion(): Promise<{ content: string; buttons: string[] }> {
-  return {
-    content: 'Какой у тебя уровень опыта?',
-    buttons: ['Студент', 'Джун (Junior)', 'Мидл (Middle)', 'Сеньор (Senior)'],
-  };
+// Генерация уточняющего вопроса об уровне опыта (адаптивный)
+async function generateLevelQuestion(profession: string): Promise<{ content: string; buttons: string[] }> {
+  const ai = getAIClient();
+  
+  const prompt = `Ты AI-ассистент для карьерного консультирования. Для профессии "${profession}" создай вопрос об уровне опыта с релевантными вариантами ответов.
+
+Важно:
+- Для IT-профессий: Студент, Джун, Мидл, Сеньор
+- Для рабочих профессий: Начинающий, Опытный, Мастер
+- Для творческих профессий: Начинающий, С опытом, Профессионал
+- Для других: адаптируй под профессию
+
+Формат JSON:
+{
+  "content": "Вопрос об опыте",
+  "buttons": ["Вариант 1", "Вариант 2", "Вариант 3", "Вариант 4"]
 }
 
-// Генерация уточняющего вопроса о формате работы
-async function generateWorkFormatQuestion(): Promise<{ content: string; buttons: string[] }> {
-  return {
-    content: 'Предпочитаешь офис или удалёнку?',
-    buttons: ['Офис', 'Удалёнка', 'Гибрид', 'Не важно'],
-  };
+Вопрос должен быть кратким и естественным.`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.0-flash',
+      contents: prompt,
+      config: {
+        temperature: 0.5,
+        responseMimeType: 'application/json',
+      },
+    });
+
+    const result = JSON.parse(response.text || '{}');
+    return {
+      content: result.content || 'Какой у тебя уровень опыта?',
+      buttons: result.buttons || ['Студент', 'Джун (Junior)', 'Мидл (Middle)', 'Сеньор (Senior)'],
+    };
+  } catch (error: any) {
+    console.error('Ошибка генерации вопроса об уровне:', error);
+    return {
+      content: 'Какой у тебя уровень опыта?',
+      buttons: ['Начинающий', 'С опытом', 'Опытный', 'Мастер'],
+    };
+  }
 }
 
-// Генерация уточняющего вопроса о размере компании
-async function generateCompanySizeQuestion(): Promise<{ content: string; buttons: string[] }> {
-  return {
-    content: 'Где ты хотел бы работать?',
-    buttons: ['Стартап', 'Средняя компания', 'Крупная корпорация', 'Не важно'],
-  };
+// Генерация уточняющего вопроса о формате работы (адаптивный)
+async function generateWorkFormatQuestion(profession: string): Promise<{ content: string; buttons: string[] } | null> {
+  const ai = getAIClient();
+  
+  const prompt = `Ты AI-ассистент для карьерного консультирования. Для профессии "${profession}" определи, нужно ли спрашивать о формате работы (офис/удаленка).
+
+Важно:
+- Если профессия требует ФИЗИЧЕСКОГО ПРИСУТСТВИЯ (строитель, водитель, повар, массажист, специалист по канализации и т.д.) - верни null
+- Если профессия может быть удаленной (IT, дизайн, маркетинг, аналитика) - создай вопрос
+
+Формат JSON:
+{
+  "isRelevant": true/false,
+  "content": "Вопрос о формате работы (если isRelevant=true)",
+  "buttons": ["Офис", "Удалёнка", "Гибрид", "Не важно"] (если isRelevant=true)
+}`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.0-flash',
+      contents: prompt,
+      config: {
+        temperature: 0.3,
+        responseMimeType: 'application/json',
+      },
+    });
+
+    const result = JSON.parse(response.text || '{}');
+    
+    if (!result.isRelevant) {
+      return null; // Вопрос не релевантен для этой профессии
+    }
+    
+    return {
+      content: result.content || 'Предпочитаешь офис или удалёнку?',
+      buttons: result.buttons || ['Офис', 'Удалёнка', 'Гибрид', 'Не важно'],
+    };
+  } catch (error: any) {
+    console.error('Ошибка генерации вопроса о формате работы:', error);
+    // В случае ошибки предполагаем, что вопрос не релевантен
+    return null;
+  }
 }
 
-// Генерация уточняющего вопроса о локации
-async function generateLocationQuestion(): Promise<{ content: string; buttons: string[] }> {
-  return {
-    content: 'В каком городе ты планируешь работать?',
-    buttons: ['Москва', 'Санкт-Петербург', 'Другой город', 'Удалённо'],
-  };
+// Генерация уточняющего вопроса о размере компании (адаптивный)
+async function generateCompanySizeQuestion(profession: string): Promise<{ content: string; buttons: string[] }> {
+  const ai = getAIClient();
+  
+  const prompt = `Ты AI-ассистент для карьерного консультирования. Для профессии "${profession}" создай вопрос о месте работы с релевантными вариантами.
+
+Важно:
+- Для IT-профессий: Стартап, Средняя компания, Крупная корпорация, Не важно
+- Для рабочих профессий: Частная фирма, Муниципальное предприятие, Крупная организация, Не важно
+- Для творческих: Агентство, Фриланс, Крупная студия, Не важно
+- Для медицинских: Частная клиника, Государственная больница, Медицинский центр, Не важно
+
+Адаптируй варианты под конкретную профессию!
+
+Формат JSON:
+{
+  "content": "Вопрос о месте работы",
+  "buttons": ["Вариант 1", "Вариант 2", "Вариант 3", "Вариант 4"]
+}`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.0-flash',
+      contents: prompt,
+      config: {
+        temperature: 0.5,
+        responseMimeType: 'application/json',
+      },
+    });
+
+    const result = JSON.parse(response.text || '{}');
+    return {
+      content: result.content || 'Где ты хотел бы работать?',
+      buttons: result.buttons || ['Частная организация', 'Государственная', 'Крупная компания', 'Не важно'],
+    };
+  } catch (error: any) {
+    console.error('Ошибка генерации вопроса о месте работы:', error);
+    return {
+      content: 'Где ты хотел бы работать?',
+      buttons: ['Частная организация', 'Государственная', 'Крупная компания', 'Не важно'],
+    };
+  }
+}
+
+// Генерация уточняющего вопроса о локации (адаптивный)
+async function generateLocationQuestion(profession: string): Promise<{ content: string; buttons: string[] }> {
+  const ai = getAIClient();
+  
+  const prompt = `Ты AI-ассистент для карьерного консультирования. Для профессии "${profession}" создай вопрос о локации работы.
+
+Формат JSON:
+{
+  "content": "В каком городе ты планируешь работать?",
+  "buttons": ["Москва", "Санкт-Петербург", "Другой город", "Не важно"]
+}
+
+Вопрос должен быть естественным для этой профессии.`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.0-flash',
+      contents: prompt,
+      config: {
+        temperature: 0.5,
+        responseMimeType: 'application/json',
+      },
+    });
+
+    const result = JSON.parse(response.text || '{}');
+    return {
+      content: result.content || 'В каком городе ты планируешь работать?',
+      buttons: result.buttons || ['Москва', 'Санкт-Петербург', 'Другой город', 'Не важно'],
+    };
+  } catch (error: any) {
+    console.error('Ошибка генерации вопроса о локации:', error);
+    return {
+      content: 'В каком городе ты планируешь работать?',
+      buttons: ['Москва', 'Санкт-Петербург', 'Другой город', 'Не важно'],
+    };
+  }
 }
 
 // Генерация уточняющего вопроса о специализации
@@ -1117,12 +1256,20 @@ ${professions.map((p, i) => `${i + 1}. "${p.profession}" -> slug: "${p.slug}" ($
 
 // Main handler
 export async function POST(request: NextRequest) {
+  const requestStartTime = Date.now();
   try {
     const body: ChatRequest = await request.json();
     const { message, history, persona: currentPersona } = body;
+    
+    logger.info('Chat API: получен запрос', { 
+      messageLength: message.length, 
+      historyLength: history.length,
+      hasPersona: !!currentPersona
+    });
 
     // Шаг 0: Если это первое сообщение - показываем приветствие с выбором сценария
     if (history.length === 0) {
+      logger.debug('Chat API: первое сообщение, показываем приветствие');
       const greeting = await generateGreeting();
       const chatResponse: ChatResponse = {
         message: {
@@ -1136,14 +1283,27 @@ export async function POST(request: NextRequest) {
         persona: currentPersona || { isUncertain: false },
         stage: 'initial',
       };
+      logger.info('Chat API: ответ (приветствие)', { duration: Date.now() - requestStartTime });
       return NextResponse.json(chatResponse);
     }
 
     // Step 1: Parse intent
+    logger.trace('Chat API: парсинг intent', { message });
+    const intentStartTime = Date.now();
     const intent = await parseIntent(message, history);
+    logger.debug('Chat API: intent определен', { 
+      intent: intent.intent, 
+      confidence: intent.confidence,
+      duration: Date.now() - intentStartTime
+    });
 
     // Step 2: Detect/update persona
+    const personaStartTime = Date.now();
     const persona = await detectPersona(message, history, currentPersona || null);
+    logger.debug('Chat API: persona обновлена', { 
+      persona, 
+      duration: Date.now() - personaStartTime 
+    });
 
     // Step 3: Проверяем контекст предыдущего сообщения
     const lastAssistantMessage = history
@@ -1619,19 +1779,37 @@ export async function POST(request: NextRequest) {
         const mappedLevel = mapLevelAnswer(message);
         persona.experience = mappedLevel;
         
-        // Задаем следующий вопрос о формате работы
-        const workFormatQuestion = await generateWorkFormatQuestion();
-        responseMessage = {
-          type: 'buttons',
-          content: workFormatQuestion.content,
-          buttons: workFormatQuestion.buttons,
-          metadata: {
-            clarificationStep: 'work_format',
-            professionForClarification,
-            professionDescription: lastAssistantMessage?.metadata?.professionDescription,
-          },
-        };
-        stage = 'clarifying';
+        // Задаем следующий вопрос о формате работы (если релевантен)
+        const workFormatQuestion = await generateWorkFormatQuestion(professionForClarification);
+        
+        if (workFormatQuestion) {
+          // Вопрос релевантен - задаем его
+          responseMessage = {
+            type: 'buttons',
+            content: workFormatQuestion.content,
+            buttons: workFormatQuestion.buttons,
+            metadata: {
+              clarificationStep: 'work_format',
+              professionForClarification,
+              professionDescription: lastAssistantMessage?.metadata?.professionDescription,
+            },
+          };
+          stage = 'clarifying';
+        } else {
+          // Вопрос не релевантен - пропускаем и сразу переходим к размеру компании
+          const companySizeQuestion = await generateCompanySizeQuestion(professionForClarification);
+          responseMessage = {
+            type: 'buttons',
+            content: companySizeQuestion.content,
+            buttons: companySizeQuestion.buttons,
+            metadata: {
+              clarificationStep: 'company_size',
+              professionForClarification,
+              professionDescription: lastAssistantMessage?.metadata?.professionDescription,
+            },
+          };
+          stage = 'clarifying';
+        }
       } else if (clarificationStep === 'work_format') {
         const workFormat = mapWorkFormatAnswer(message);
         // Если выбрана удаленка или гибрид, устанавливаем location в remote
@@ -1641,7 +1819,7 @@ export async function POST(request: NextRequest) {
         persona.workStyle = workFormat;
         
         // Задаем следующий вопрос о размере компании
-        const companySizeQuestion = await generateCompanySizeQuestion();
+        const companySizeQuestion = await generateCompanySizeQuestion(professionForClarification);
         responseMessage = {
           type: 'buttons',
           content: companySizeQuestion.content,
@@ -1658,7 +1836,7 @@ export async function POST(request: NextRequest) {
         
         // Если локация еще не установлена (не удаленка), задаем вопрос о локации
         if (!persona.location || persona.location !== 'remote') {
-          const locationQuestion = await generateLocationQuestion();
+          const locationQuestion = await generateLocationQuestion(professionForClarification);
           responseMessage = {
             type: 'buttons',
             content: locationQuestion.content,
@@ -1774,7 +1952,7 @@ export async function POST(request: NextRequest) {
         );
         
         // Теперь не генерируем карточку сразу, а задаем первый уточняющий вопрос об уровне
-        const levelQuestion = await generateLevelQuestion();
+        const levelQuestion = await generateLevelQuestion(professionToClarify);
         responseMessage = {
           type: 'buttons',
           content: `Отлично! Перед тем как сгенерирую карточку для "${professionToClarify}", уточни пару деталей 👇\n\n${levelQuestion.content}`,
@@ -1841,7 +2019,7 @@ export async function POST(request: NextRequest) {
           console.error('Clarification question generation error:', error);
           // Если не удалось сгенерировать уточняющий вопрос, сразу задаем первый уточняющий вопрос об уровне
           const professionName = results.professionToGenerate;
-          const levelQuestion = await generateLevelQuestion();
+          const levelQuestion = await generateLevelQuestion(professionName);
           
           responseMessage = {
             type: 'buttons',
@@ -1857,7 +2035,7 @@ export async function POST(request: NextRequest) {
       } else if (results.cards && results.cards.length === 1) {
         // Если найдена ровно одна профессия, задаем уточняющие вопросы перед показом карточки
         const professionName = results.cards[0].profession;
-        const levelQuestion = await generateLevelQuestion();
+        const levelQuestion = await generateLevelQuestion(professionName);
         
         responseMessage = {
           type: 'buttons',
@@ -1935,15 +2113,24 @@ export async function POST(request: NextRequest) {
       stage,
     };
 
+    const totalDuration = Date.now() - requestStartTime;
+    logger.performance('Chat API: обработка запроса', totalDuration, { 
+      intent: intent.intent, 
+      stage,
+      messageType: responseMessage.type
+    });
+    logger.info('Chat API: ответ отправлен', { duration: totalDuration });
+
     return NextResponse.json(chatResponse);
   } catch (error: any) {
-    console.error('Chat API error:', error);
-    console.error('Error details:', {
+    const totalDuration = Date.now() - requestStartTime;
+    logger.error('Chat API: ошибка обработки запроса', error, {
       message: error?.message,
       stack: error?.stack,
       name: error?.name,
       HTTP_PROXY: process.env.HTTP_PROXY ? 'настроен' : 'не настроен',
       HTTPS_PROXY: process.env.HTTPS_PROXY ? 'настроен' : 'не настроен',
+      duration: totalDuration
     });
     
     return NextResponse.json(
