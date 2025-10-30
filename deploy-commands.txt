@@ -83,3 +83,12 @@ npm ci
 npm run build
 pm2 restart hhhack
 
+# ИЛИ используйте скрипт обновления:
+ssh root@194.87.200.140 'bash -s' < update.sh
+
+# Просмотр логов приложения
+ssh root@194.87.200.140 'pm2 logs hhhack --lines 100'
+
+# Проверка статуса
+ssh root@194.87.200.140 'pm2 status && systemctl status nginx'
+
