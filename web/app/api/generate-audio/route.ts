@@ -9,23 +9,12 @@ export const maxDuration = 300; // 5 минут для генерации все
  */
 export async function POST(request: NextRequest) {
   try {
-    const { slug } = await request.json();
+    const { slug, profession, schedule, isIT } = await request.json();
     
     if (!slug) {
       return NextResponse.json(
         { error: 'Missing required parameter: slug' },
         { status: 400 }
-      );
-    }
-    
-    // Проверяем, есть ли профиль звуков для этой профессии
-    if (!AUDIO_PROFILES[slug]) {
-      return NextResponse.json(
-        { 
-          error: `Audio profile not found for: ${slug}`,
-          availableProfiles: Object.keys(AUDIO_PROFILES)
-        },
-        { status: 404 }
       );
     }
     
@@ -38,8 +27,16 @@ export async function POST(request: NextRequest) {
       });
     }
     
-    // Генерируем звуки
-    const audioData = await generateProfessionAudio(slug);
+    // Генерируем звуки (функция сама найдет профиль или создаст универсальный)
+    const audioData = await generateProfessionAudio(
+      slug,
+      undefined,
+      {
+        profession,
+        schedule,
+        isIT,
+      }
+    );
     
     return NextResponse.json({
       message: 'Audio generated successfully',

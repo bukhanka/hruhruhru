@@ -1392,13 +1392,21 @@ export async function generateCard(
       
       const hasAudio = await checkCachedAudio(slug);
       if (!hasAudio) {
-        audioData = await generateProfessionAudio(slug, (msg, prog) => {
-          if (onProgress) {
-            // Прогресс: 85% + до 10% (звуки) = 85-95%
-            const totalProgress = 85 + (prog / 100) * 10;
-            onProgress(msg, totalProgress);
+        audioData = await generateProfessionAudio(
+          slug,
+          (msg, prog) => {
+            if (onProgress) {
+              // Прогресс: 85% + до 10% (звуки) = 85-95%
+              const totalProgress = 85 + (prog / 100) * 10;
+              onProgress(msg, totalProgress);
+            }
+          },
+          {
+            profession: profession,
+            schedule: data.schedule || [],
+            isIT: data.isIT || false,
           }
-        });
+        );
       } else {
         if (onProgress) onProgress('Звуки уже сгенерированы ✅', 95);
       }

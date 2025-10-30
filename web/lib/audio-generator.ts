@@ -176,6 +176,10 @@ export async function generateSoundEffect(
 ): Promise<Blob> {
   const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || 'sk_68d1e587381f00c8364ce120df0ea73d1e401a78f374752f';
   
+  if (!ELEVENLABS_API_KEY) {
+    throw new Error('ELEVENLABS_API_KEY не найден в переменных окружения');
+  }
+  
   if (onProgress) onProgress(10);
   
   // Настройка прокси для обхода региональных ограничений (если нужен)
@@ -187,7 +191,7 @@ export async function generateSoundEffect(
     },
     body: JSON.stringify({
       text: prompt,
-      duration_seconds: duration,
+      duration_seconds: duration || 10,
       loop: loop,
       prompt_influence: 0.7, // Balanced between literal and creative
     }),
@@ -200,16 +204,41 @@ export async function generateSoundEffect(
       const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
       if (proxyUrl) {
         (fetchOptions as any).agent = new HttpsProxyAgent(proxyUrl);
+        console.log('[Audio] Используется прокси для ElevenLabs API');
       }
     } catch (e) {
       console.warn('⚠️ Не удалось настроить прокси для ElevenLabs:', e);
     }
   }
   
+  console.log(`[Audio] Генерация звука через ElevenLabs: "${prompt.substring(0, 50)}..."`);
+  
   const response = await fetch('https://api.elevenlabs.io/v1/sound-generation', fetchOptions);
   
   if (!response.ok) {
-    const errorText = await response.text();
+    let errorText = '';
+    let errorDetail: any = null;
+    
+    try {
+      errorText = await response.text();
+      errorDetail = JSON.parse(errorText);
+    } catch (e) {
+      // Если не удалось распарсить JSON, используем текст как есть
+    }
+    
+    console.error(`[Audio] ElevenLabs API error ${response.status}:`, errorText);
+    
+    // Проверяем статус payment_issue в деталях ошибки
+    const isPaymentIssue = errorDetail?.detail?.status === 'payment_issue' || 
+                          errorText.includes('payment_issue') ||
+                          errorText.includes('failed or incomplete payment');
+    
+    if (response.status === 401 || response.status === 402 || isPaymentIssue) {
+      throw new Error(`ElevenLabs API: Требуется оплата подписки (payment_issue). Проверьте https://elevenlabs.io/app/subscription`);
+    } else if (response.status === 429) {
+      throw new Error(`ElevenLabs API: Превышен лимит запросов. Попробуйте позже.`);
+    }
+    
     throw new Error(`ElevenLabs API error: ${response.status} - ${errorText}`);
   }
   
@@ -218,6 +247,8 @@ export async function generateSoundEffect(
   const audioBlob = await response.blob();
   
   if (onProgress) onProgress(100);
+  
+  console.log(`[Audio] Звук успешно сгенерирован: ${audioBlob.size} байт`);
   
   return audioBlob;
 }
@@ -310,25 +341,133 @@ export async function generateTimelineSounds(
 }
 
 /**
+ * Создание универсального профиля на основе schedule профессии
+ */
+function createUniversalAudioProfile(
+  profession: string,
+  schedule: Array<{ time: string; title: string; description: string; emoji?: string }>,
+  isIT: boolean = false
+): AudioProfile {
+  const timelineSounds: TimelineSound[] = schedule.map((item, index) => {
+    // Базовые промпты для разных типов событий
+    let basePrompt = '';
+    
+    if (item.title.toLowerCase().includes('стендап') || item.title.toLowerCase().includes('встреч')) {
+      basePrompt = `Pleasant ASMR office meeting: soft friendly voices discussing tasks, gentle keyboard clicks in background, warm collaborative energy, crisp clear audio with rich spatial depth, cozy productive atmosphere`;
+    } else if (item.title.toLowerCase().includes('обед') || item.title.toLowerCase().includes('перерыв')) {
+      basePrompt = `Cozy ASMR lunch break: gentle friendly laughter, pleasant conversations, soft food wrapper sounds, warm social bonding, comfortable break room ambience, high quality spatial audio, relaxing camaraderie`;
+    } else if (item.title.toLowerCase().includes('код') || item.title.toLowerCase().includes('разработк')) {
+      basePrompt = `Ultra satisfying ASMR deep coding flow: rhythmic mechanical keyboard typing, crisp tactile clicks, soft mouse movements, gentle breathing of focused developer, satisfying keystroke patterns, peaceful concentration zone, premium binaural audio quality`;
+    } else if (item.title.toLowerCase().includes('анализ') || item.title.toLowerCase().includes('данн')) {
+      basePrompt = `Satisfying ASMR data analysis: calm focused atmosphere, gentle keyboard typing, soft mouse movements, thoughtful contemplative sounds, peaceful learning atmosphere, crisp detailed stereo sound, relaxing focus ambience`;
+    } else if (item.title.toLowerCase().includes('визуализац') || item.title.toLowerCase().includes('дашборд')) {
+      basePrompt = `Peaceful ASMR visualization work: slow deliberate keyboard typing, satisfying mouse movements, calm organizing sounds, content creation atmosphere, soft desk items being arranged, relaxing completion vibes, premium audio quality`;
+    } else if (item.title.toLowerCase().includes('ревью') || item.title.toLowerCase().includes('проверк')) {
+      basePrompt = `Satisfying ASMR review session: calm mentor voice explaining concepts, gentle mouse wheel scrolling, soft keyboard taps, thoughtful contemplative hmms, peaceful learning atmosphere, crisp detailed stereo sound, relaxing focus ambience`;
+    } else {
+      // Универсальный промпт для остальных случаев
+      basePrompt = isIT 
+        ? `Pleasant ASMR ${profession.toLowerCase()} work: focused atmosphere, gentle keyboard typing, soft mouse movements, calm productive energy, crisp clear audio, cozy professional ambience`
+        : `Pleasant ASMR ${profession.toLowerCase()} work: focused atmosphere, calm productive energy, crisp clear audio, cozy professional ambience`;
+    }
+    
+    return {
+      id: `timeline-${item.time.replace(':', '-')}`,
+      timeSlot: item.time,
+      description: item.title,
+      prompt: `${basePrompt} - during ${item.title} at ${item.time}`,
+      duration: 10,
+    };
+  });
+  
+  return {
+    profession,
+    timelineSounds,
+  };
+}
+
+/**
+ * Поиск профиля по slug с fallback на базовое название профессии
+ */
+function findAudioProfile(slug: string, profession?: string, schedule?: Array<{ time: string; title: string; description: string; emoji?: string }>, isIT?: boolean): AudioProfile | null {
+  // Прямой поиск по slug
+  if (AUDIO_PROFILES[slug]) {
+    console.log(`[Audio] Найден профиль по slug: ${slug}`);
+    return AUDIO_PROFILES[slug];
+  }
+  
+  // Попытка найти по базовому названию профессии
+  if (profession) {
+    const baseSlug = profession.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+    if (AUDIO_PROFILES[baseSlug]) {
+      console.log(`[Audio] Найден профиль по базовому slug: ${baseSlug}`);
+      return AUDIO_PROFILES[baseSlug];
+    }
+    
+    // Проверяем частичные совпадения
+    for (const key in AUDIO_PROFILES) {
+      if (baseSlug.includes(key) || key.includes(baseSlug)) {
+        console.log(`[Audio] Найден профиль по частичному совпадению: ${key} для ${baseSlug}`);
+        return AUDIO_PROFILES[key];
+      }
+    }
+  }
+  
+  // Если есть schedule, создаем универсальный профиль
+  if (schedule && schedule.length > 0) {
+    console.log(`[Audio] Создаю универсальный профиль для ${profession || slug} на основе schedule (${schedule.length} событий)`);
+    return createUniversalAudioProfile(profession || slug, schedule, isIT || false);
+  }
+  
+  console.warn(`[Audio] Профиль не найден для ${slug}, и нет данных schedule для создания универсального профиля`);
+  return null;
+}
+
+/**
  * Генерация всех звуков для профессии (для timeline) - оригинальная функция
  */
 export async function generateProfessionAudio(
   slug: string,
-  onProgress?: (message: string, progress: number) => void
+  onProgress?: (message: string, progress: number) => void,
+  professionData?: {
+    profession?: string;
+    schedule?: Array<{ time: string; title: string; description: string; emoji?: string }>;
+    isIT?: boolean;
+  }
 ): Promise<{
   timelineSounds: Array<{ id: string; timeSlot: string; url: string }>;
 }> {
-  const profile = AUDIO_PROFILES[slug];
+  // Пытаемся найти профиль с fallback на универсальный
+  const profile = findAudioProfile(
+    slug,
+    professionData?.profession,
+    professionData?.schedule,
+    professionData?.isIT
+  );
   
   if (!profile) {
-    throw new Error(`Audio profile not found for: ${slug}`);
+    throw new Error(`Audio profile not found for: ${slug} and no schedule data provided`);
   }
   
   const timelineSounds: Array<{ id: string; timeSlot: string; url: string }> = [];
   
+  // Проверяем API ключ перед началом генерации
+  const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
+  if (!ELEVENLABS_API_KEY) {
+    throw new Error('ELEVENLABS_API_KEY не найден в переменных окружения. Звуки не будут сгенерированы.');
+  }
+  
+  let paymentIssueDetected = false;
+  
   // Генерируем звуки для каждого этапа дня
   for (let i = 0; i < profile.timelineSounds.length; i++) {
     const sound = profile.timelineSounds[i];
+    
+    // Если обнаружена проблема с оплатой, прекращаем генерацию
+    if (paymentIssueDetected) {
+      console.warn(`[Audio] Прекращаю генерацию звуков из-за проблемы с оплатой ElevenLabs`);
+      break;
+    }
     
     if (onProgress) {
       onProgress(`Генерирую звук ${i + 1}/${profile.timelineSounds.length}: ${sound.description}...`, (i / profile.timelineSounds.length) * 100);
@@ -355,10 +494,32 @@ export async function generateProfessionAudio(
       await new Promise(resolve => setTimeout(resolve, 2000));
     } catch (error: any) {
       console.error(`    ✗ Ошибка: ${sound.timeSlot} - ${sound.description}:`, error.message);
+      
+      // Если ошибка связана с оплатой (401, 402), прекращаем генерацию
+      if (error.message.includes('payment') || 
+          error.message.includes('оплата') || 
+          error.message.includes('subscription') ||
+          error.message.includes('401') ||
+          error.message.includes('402')) {
+        paymentIssueDetected = true;
+        console.warn(`[Audio] Обнаружена проблема с оплатой ElevenLabs. Генерация звуков прекращена.`);
+        console.warn(`[Audio] Для продолжения необходимо оплатить подписку: https://elevenlabs.io/app/subscription`);
+        break;
+      }
     }
   }
   
-  if (onProgress) onProgress('Все звуки готовы! 🎧', 100);
+  if (paymentIssueDetected && timelineSounds.length === 0) {
+    throw new Error('Не удалось сгенерировать звуки: требуется оплата подписки ElevenLabs. Проверьте https://elevenlabs.io/app/subscription');
+  }
+  
+  if (onProgress) {
+    if (timelineSounds.length > 0) {
+      onProgress(`Сгенерировано ${timelineSounds.length} из ${profile.timelineSounds.length} звуков ${paymentIssueDetected ? '(прервано из-за проблемы с оплатой)' : ''}`, 100);
+    } else {
+      onProgress('Не удалось сгенерировать звуки', 100);
+    }
+  }
   
   return {
     timelineSounds,
