@@ -14,7 +14,8 @@ cd $APP_DIR/web
 npm ci
 npm run build
 
-pm2 restart hhhack
+pm2 restart all
+pm2 save
 
 echo "✅ Update complete!"
 pm2 status

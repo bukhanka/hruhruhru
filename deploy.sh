@@ -75,6 +75,7 @@ server {
     listen 80;
     server_name hhhack.agiin2024.ru;
 
+    # Next.js app
     location / {
         proxy_pass http://localhost:3000;
         proxy_http_version 1.1;
@@ -85,6 +86,19 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Socket.IO WebSocket for Voice Chat (Server-to-Server)
+    location /socket.io/ {
+        proxy_pass http://localhost:3001;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 86400;
     }
 }
 NGINX_CONFIG
@@ -102,11 +116,11 @@ echo "🔄 Restarting nginx..."
 systemctl restart nginx
 systemctl enable nginx
 
-# Start application with PM2
-echo "🚀 Starting application..."
+# Start application with PM2 using ecosystem.config.js
+echo "🚀 Starting applications..."
 cd $APP_DIR/web
-pm2 delete hhhack || true
-pm2 start npm --name "hhhack" -- start -- -p $PORT
+pm2 delete all || true
+pm2 start ecosystem.config.js
 pm2 save
 pm2 startup systemd -u root --hp /root
 

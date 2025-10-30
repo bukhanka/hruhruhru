@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import { io, Socket } from 'socket.io-client';
 
 interface VoiceChatProps {
   professionName: string;
@@ -21,42 +22,12 @@ export default function VoiceChat({ professionName, professionData }: VoiceChatP
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSpeaking, setIsSpeaking] = useState(false);
   
-  const sessionRef = useRef<any>(null);
+  const socketRef = useRef<Socket | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const audioQueueRef = useRef<Int16Array[]>([]);
   const isPlayingRef = useRef(false);
-  const responseQueueRef = useRef<any[]>([]);
-
-  const systemInstruction = `Ты - живой, реальный представитель профессии "${professionName}"${professionData?.company ? ` в компании ${professionData.company}` : ''}.
-Ты разговариваешь с кандидатом, который интересуется этой профессией.
-
-ВАЖНО - СТИЛЬ РЕЧИ И ГОЛОС:
-- Говори ТОЛЬКО на русском языке
-- Говори естественно, как обычный человек в реальном разговоре
-- Используй живые интонации, паузы, эмоции
-- Можешь использовать междометия типа "ну", "вот", "знаешь", "понимаешь"
-- Звучи увлечённо и заинтересованно, но без излишнего энтузиазма
-- Говори в разговорном стиле, как будто рассказываешь коллеге за чашкой кофе
-- Избегай формальностей и канцеляризмов
-- НЕ звучи как робот или автоответчик
-- Отвечай довольно кратко (20-40 секунд), но содержательно
-- Можешь добавлять личный опыт и примеры из жизни
-
-ИНФОРМАЦИЯ О ВАКАНСИИ:
-${professionData?.level ? `Уровень: ${professionData.level}` : ''}
-${professionData?.benefits?.length ? `\nПреимущества:\n${professionData.benefits.map(b => `- ${b.text}`).join('\n')}` : ''}
-${professionData?.skills?.length ? `\nНужные навыки:\n${professionData.skills.map(s => `- ${s.name}`).join('\n')}` : ''}
-${professionData?.schedule?.length ? `\nТипичный день:\n${professionData.schedule.slice(0, 3).map(s => `- ${s.time}: ${s.title} - ${s.description}`).join('\n')}` : ''}
-
-ТВОЯ ЗАДАЧА:
-- Отвечать на вопросы о работе, условиях, требованиях, карьере
-- Делиться инсайтами о профессии
-- Помогать понять, подходит ли человеку эта работа
-- Если спрашивают о чём-то не связанном с профессией, вежливо возвращай к теме
-
-Помни: ты говоришь вслух, поэтому твоя речь должна звучать максимально естественно и по-человечески!`;
 
   // Resample audio to 16kHz
   const resampleTo16kHz = async (audioData: Float32Array, sourceSampleRate: number): Promise<Float32Array> => {
@@ -122,10 +93,9 @@ ${professionData?.schedule?.length ? `\nТипичный день:\n${profession
     }
   };
 
-  // Обработка сообщений от Live API
-  const handleMessage = (message: any) => {
-    console.log('📨 Received message from Live API:', message);
-    responseQueueRef.current.push(message);
+  // Обработка сообщений от сервера (Gemini через прокси)
+  const handleGeminiMessage = (message: any) => {
+    console.log('📨 Received message from Gemini (via server):', message);
     
     if (message.data) {
       console.log('🔊 Got audio data, length:', message.data.length);
@@ -148,72 +118,57 @@ ${professionData?.schedule?.length ? `\nТипичный день:\n${profession
       setConnectionState('connecting');
       setErrorMessage(null);
 
-      // Динамический импорт SDK
-      const { GoogleGenAI, Modality } = await import('@google/genai');
+      // Подключаемся к нашему WebSocket серверу (Server-to-Server)
+      const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'http://localhost:3001';
+      console.log('🔌 Connecting to WebSocket server:', wsUrl);
       
-      // Получаем API ключ с сервера
-      const keyResponse = await fetch('/api/voice-chat/token', {
-        method: 'POST',
-      });
-      
-      if (!keyResponse.ok) {
-        throw new Error('Не удалось получить токен доступа');
-      }
-      
-      const { apiKey } = await keyResponse.json();
-      
-      // Используем v1alpha для доступа к affective dialog и proactive audio
-      const ai = new GoogleGenAI({ 
-        apiKey,
-        httpOptions: { apiVersion: "v1alpha" }
-      });
-      
-      // Используем native audio модель для поддержки affective и proactive аудио
-      const model = "gemini-2.5-flash-native-audio-preview-09-2025";
-      const config = {
-        responseModalities: [Modality.AUDIO],
-        systemInstruction,
-        // Native audio автоматически определяет язык из контекста (русский из system instruction)
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: {
-              voiceName: "Aoede" // Женский голос, более естественный
-            }
-          }
-        },
-        enableAffectiveDialog: true, // Адаптирует стиль ответа под эмоции собеседника
-        proactivity: { 
-          proactiveAudio: true // Может не отвечать на нерелевантные вопросы
-        },
-        generationConfig: {
-          temperature: 0.9, // Больше вариативности и естественности
-          candidateCount: 1,
-        }
-      };
-
-      // Подключаемся к Live API
-      const session = await ai.live.connect({
-        model,
-        callbacks: {
-          onopen: () => {
-            console.log('Connected to Live API');
-            setConnectionState('connected');
-          },
-          onmessage: handleMessage,
-          onerror: (e: any) => {
-            console.error('Live API error:', e);
-            setErrorMessage(e.message || 'Ошибка соединения');
-            setConnectionState('error');
-          },
-          onclose: (e: any) => {
-            console.log('Connection closed:', e.reason);
-            cleanup();
-          },
-        },
-        config,
+      const socket = io(wsUrl, {
+        transports: ['websocket', 'polling'],
+        reconnection: true,
+        reconnectionDelay: 1000,
+        reconnectionAttempts: 5
       });
 
-      sessionRef.current = session;
+      socketRef.current = socket;
+
+      // Обработчики Socket.IO
+      socket.on('connect', () => {
+        console.log('✅ Connected to WebSocket server');
+        // Инициализируем соединение с Gemini через сервер
+        socket.emit('init', {
+          professionName,
+          professionData
+        });
+      });
+
+      socket.on('connected', () => {
+        console.log('✅ Gemini Live API connected via server');
+        setConnectionState('connected');
+      });
+
+      socket.on('gemini-message', handleGeminiMessage);
+
+      socket.on('error', (data: any) => {
+        console.error('❌ Server error:', data);
+        setErrorMessage(data.message || 'Ошибка сервера');
+        setConnectionState('error');
+      });
+
+      socket.on('disconnected', (data: any) => {
+        console.log('🔴 Disconnected:', data.reason);
+        cleanup();
+      });
+
+      socket.on('disconnect', () => {
+        console.log('🔴 Socket disconnected');
+        setConnectionState('idle');
+      });
+
+      socket.on('connect_error', (error: any) => {
+        console.error('❌ Connection error:', error);
+        setErrorMessage('Не удалось подключиться к серверу');
+        setConnectionState('error');
+      });
 
       // Получаем доступ к микрофону
       const stream = await navigator.mediaDevices.getUserMedia({ 
@@ -239,7 +194,7 @@ ${professionData?.schedule?.length ? `\nТипичный день:\n${profession
 
       // Обрабатываем аудио с микрофона
       processor.onaudioprocess = async (e) => {
-        if (connectionState !== 'connected' || !sessionRef.current) return;
+        if (connectionState !== 'connected' || !socketRef.current) return;
         
         try {
           const inputData = e.inputBuffer.getChannelData(0);
@@ -247,12 +202,10 @@ ${professionData?.schedule?.length ? `\nТипичный день:\n${profession
           const pcmBuffer = float32ToInt16PCM(resampled);
           const base64Audio = Buffer.from(pcmBuffer).toString('base64');
           
-          // Отправляем аудио в Live API
-          sessionRef.current.sendRealtimeInput({
-            audio: {
-              data: base64Audio,
-              mimeType: "audio/pcm;rate=16000"
-            }
+          // Отправляем аудио на наш сервер, который пересылает в Gemini
+          socketRef.current.emit('audio', {
+            audio: base64Audio,
+            mimeType: "audio/pcm;rate=16000"
           });
         } catch (err) {
           console.error('Error processing audio:', err);
@@ -271,11 +224,12 @@ ${professionData?.schedule?.length ? `\nТипичный день:\n${profession
   };
 
   const stopVoiceChat = () => {
-    if (sessionRef.current) {
+    if (socketRef.current) {
       try {
-        sessionRef.current.close();
+        socketRef.current.emit('close');
+        socketRef.current.disconnect();
       } catch (error) {
-        console.error('Error closing session:', error);
+        console.error('Error closing socket:', error);
       }
     }
     cleanup();
@@ -302,9 +256,12 @@ ${professionData?.schedule?.length ? `\nТипичный день:\n${profession
       audioContextRef.current = null;
     }
 
-    sessionRef.current = null;
+    if (socketRef.current) {
+      socketRef.current.disconnect();
+      socketRef.current = null;
+    }
+
     audioQueueRef.current = [];
-    responseQueueRef.current = [];
     isPlayingRef.current = false;
   };
 
@@ -427,7 +384,7 @@ ${professionData?.schedule?.length ? `\nТипичный день:\n${profession
 
         <p className="mt-3 text-center text-xs text-text-secondary">
           Powered by Google Gemini 2.5 Native Audio<br/>
-          <span className="text-[10px]">Affective Dialog • Proactive Audio • Russian Language</span>
+          <span className="text-[10px]">Server-to-Server • Affective Dialog • Russian</span>
         </p>
       </div>
     </div>
