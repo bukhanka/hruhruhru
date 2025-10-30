@@ -32,6 +32,9 @@ export interface UserPersona {
   companySize?: 'startup' | 'medium' | 'large' | 'any'; // Размер компании
   location?: 'moscow' | 'spb' | 'other' | 'remote'; // Локация работы
   specialization?: string; // Специализация внутри профессии
+  // Параметры для сценария "не знаю профессию"
+  workStyle?: string; // Стиль работы (в команде / самостоятельно)
+  values?: string; // Ценности (стабильность / драйв / смысл / творчество)
 }
 
 export interface ChatState {

@@ -65,7 +65,7 @@ function getAvailableProfessions() {
 
 // Intent Parser: определяет намерение пользователя
 async function parseIntent(message: string, history: Message[]): Promise<{
-  intent: 'search_profession' | 'uncertain' | 'clarification' | 'general_chat';
+  intent: 'search_profession' | 'uncertain' | 'clarification' | 'general_chat' | 'scenario_choice' | 'game_day' | 'compare_professions' | 'show_impact';
   confidence: number;
   extractedInfo: Record<string, any>;
 }> {
@@ -75,6 +75,10 @@ async function parseIntent(message: string, history: Message[]): Promise<{
 - "search_profession": пользователь знает, какую профессию ищет или упоминает конкретные навыки/должности
 - "uncertain": пользователь не знает, чего хочет, использует фразы типа "не знаю", "помоги выбрать", "что посоветуешь"
 - "clarification": пользователь отвечает на уточняющий вопрос
+- "scenario_choice": пользователь выбирает между "знаю профессию" или "не знаю"
+- "game_day": пользователь хочет прожить день в профессии (фразы: "прожить день", "игровой день", "симуляция")
+- "compare_professions": пользователь хочет сравнить профессии (фразы: "сравни", "в чем разница", "отличия")
+- "show_impact": пользователь спрашивает о влиянии/ценности профессии (фразы: "какая польза", "зачем", "влияние")
 - "general_chat": общение, приветствие, вопросы о сервисе
 
 История диалога:
@@ -90,7 +94,8 @@ ${history.slice(-3).map((m) => `${m.role}: ${m.content}`).join('\n')}
     "profession": "название профессии если упоминается",
     "skills": ["навык1", "навык2"],
     "level": "junior/middle/senior если упоминается",
-    "interests": ["интерес1", "интерес2"]
+    "interests": ["интерес1", "интерес2"],
+    "professionsToCompare": ["профессия1", "профессия2"] - если хочет сравнить
   }
 }`;
 
@@ -165,6 +170,285 @@ ${history.slice(-5).map((m) => `${m.role}: ${m.content}`).join('\n')}
       status: error?.status,
     });
     return currentPersona || { isUncertain: false };
+  }
+}
+
+// Приветствие с выбором сценария
+async function generateGreeting(): Promise<{ content: string; buttons: string[] }> {
+  return {
+    content: '👋 Привет! Хочешь почувствовать, каково быть в роли конкретного специалиста — или помочь тебе подобрать профессию, которая тебе подойдёт?',
+    buttons: [
+      '🎯 Я уже знаю профессию',
+      '🤔 Помоги мне выбрать',
+      '🎮 Прожить день в профессии',
+      '⚖️ Сравнить профессии',
+    ],
+  };
+}
+
+// Генерация мягких вопросов для неопределившихся (Сценарий 2)
+async function generateSoftQuestions(step: number, history: Message[]): Promise<{ content: string; buttons: string[] }> {
+  const questions = [
+    {
+      content: 'Что тебе больше по душе?',
+      buttons: ['⚙️ Логика', '🎨 Креатив', '💬 Общение', '📊 Аналитика'],
+    },
+    {
+      content: 'Ты любишь работать в команде или сам по себе?',
+      buttons: ['👥 В команде', '🧘 Самостоятельно', '⚖️ И так, и так'],
+    },
+    {
+      content: 'Что тебе важнее в работе?',
+      buttons: ['💰 Стабильность', '🚀 Драйв стартапа', '🎯 Смысл и польза', '🌟 Творчество'],
+    },
+  ];
+  
+  if (step >= 0 && step < questions.length) {
+    return questions[step];
+  }
+  
+  // Если все вопросы заданы, подбираем профессии
+  return {
+    content: 'Отлично! Сейчас подберу профессии под твой стиль 🎯',
+    buttons: [],
+  };
+}
+
+// Генерация игрового дня для профессии
+async function generateGameDay(profession: string): Promise<{ content: string; buttons: string[]; metadata?: any }> {
+  const ai = getAIClient();
+  
+  const prompt = `Ты AI-ассистент для карьерного консультирования. Создай интерактивный "игровой день" для профессии "${profession}".
+
+Опиши первую ситуацию рабочего дня (утро, 9:00-10:00), где пользователь должен сделать выбор.
+
+Формат:
+{
+  "content": "Описание ситуации (2-3 предложения)",
+  "situation": "короткое описание что происходит",
+  "time": "09:00",
+  "buttons": ["Действие 1", "Действие 2", "Действие 3"]
+}
+
+Пример для Frontend-разработчика:
+{
+  "content": "☕ 9:00 - Ты пришел в офис. На Slack 5 новых сообщений: коллега просит помочь с багом, PM напоминает о дедлайне, и тимлид приглашает на код-ревью. Что делаешь первым делом?",
+  "situation": "morning_decisions",
+  "time": "09:00",
+  "buttons": ["Помочь с багом", "Идти на код-ревью", "Проверить свои задачи"]
+}
+
+Создай первую ситуацию для "${profession}":`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.0-flash',
+      contents: prompt,
+      config: {
+        temperature: 0.8,
+        responseMimeType: 'application/json',
+      },
+    });
+
+    const result = JSON.parse(response.text || '{}');
+    
+    return {
+      content: result.content || `Начинаем игровой день в профессии ${profession}!`,
+      buttons: result.buttons || ['Начать день', 'Выбрать другую профессию'],
+      metadata: {
+        isGameDay: true,
+        profession,
+        situation: result.situation || 'start',
+        time: result.time || '09:00',
+        step: 1,
+      },
+    };
+  } catch (error: any) {
+    console.error('Game day generation error:', error);
+    return {
+      content: `🎮 Игровой день для ${profession}! Представь, что ты начинаешь свой рабочий день. Что делаешь первым?`,
+      buttons: ['Проверить почту', 'Выпить кофе', 'Начать работу'],
+      metadata: {
+        isGameDay: true,
+        profession,
+        step: 1,
+      },
+    };
+  }
+}
+
+// Продолжение игрового дня (следующий шаг)
+async function continueGameDay(
+  profession: string,
+  userChoice: string,
+  currentStep: number,
+  currentTime: string,
+  currentSituation: string
+): Promise<{ content: string; buttons: string[]; metadata?: any }> {
+  const ai = getAIClient();
+  
+  const prompt = `Ты AI-ассистент для карьерного консультирования. Продолжи интерактивный "игровой день" для профессии "${profession}".
+
+Текущая ситуация: ${currentSituation}
+Время: ${currentTime}
+Шаг: ${currentStep}
+Выбор пользователя: "${userChoice}"
+
+Создай следующую ситуацию (через 1-2 часа). Всего должно быть 5-6 ситуаций за день.
+
+Формат JSON:
+{
+  "content": "Описание что произошло после выбора + новая ситуация",
+  "situation": "краткое описание",
+  "time": "новое время (HH:00)",
+  "buttons": ["Действие 1", "Действие 2", "Действие 3"],
+  "isLastStep": false
+}
+
+Если это последняя ситуация дня (шаг 5-6), установи "isLastStep": true и добавь кнопки:
+["Завершить день", "Начать заново", "Выбрать другую профессию"]`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.0-flash',
+      contents: prompt,
+      config: {
+        temperature: 0.8,
+        responseMimeType: 'application/json',
+      },
+    });
+
+    const result = JSON.parse(response.text || '{}');
+    const nextStep = currentStep + 1;
+    
+    return {
+      content: result.content || 'Продолжаем день...',
+      buttons: result.buttons || ['Продолжить', 'Завершить'],
+      metadata: {
+        isGameDay: true,
+        profession,
+        situation: result.situation || 'continue',
+        time: result.time || currentTime,
+        step: nextStep,
+        isLastStep: result.isLastStep || nextStep >= 6,
+      },
+    };
+  } catch (error: any) {
+    console.error('Continue game day error:', error);
+    return {
+      content: 'День продолжается... Что делаешь дальше?',
+      buttons: ['Продолжить работу', 'Сделать перерыв', 'Завершить день'],
+      metadata: {
+        isGameDay: true,
+        profession,
+        step: currentStep + 1,
+      },
+    };
+  }
+}
+
+// Сравнение профессий
+async function compareProfessions(profession1: string, profession2: string): Promise<{ content: string; comparison: any }> {
+  const ai = getAIClient();
+  
+  const prompt = `Ты AI-ассистент для карьерного консультирования. Сравни две профессии: "${profession1}" и "${profession2}".
+
+Создай подробное сравнение по критериям:
+- График работы
+- Уровень стресса
+- Навыки (hard/soft)
+- Карьерный рост
+- Влияние на продукт/компанию
+- Формат работы (офис/удаленка)
+- Зарплатная вилка
+
+Формат JSON:
+{
+  "content": "Краткий вывод о главных различиях (2-3 предложения)",
+  "comparison": {
+    "schedule": {"profession1": "описание", "profession2": "описание"},
+    "stress": {"profession1": "описание", "profession2": "описание"},
+    "skills": {"profession1": ["навык1", "навык2"], "profession2": ["навык1", "навык2"]},
+    "growth": {"profession1": "описание", "profession2": "описание"},
+    "impact": {"profession1": "описание", "profession2": "описание"},
+    "format": {"profession1": "описание", "profession2": "описание"},
+    "salary": {"profession1": "диапазон", "profession2": "диапазон"}
+  }
+}`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.0-flash',
+      contents: prompt,
+      config: {
+        temperature: 0.5,
+        responseMimeType: 'application/json',
+      },
+    });
+
+    const result = JSON.parse(response.text || '{}');
+    
+    return {
+      content: result.content || `Вот сравнение ${profession1} и ${profession2}:`,
+      comparison: result.comparison || {},
+    };
+  } catch (error: any) {
+    console.error('Compare professions error:', error);
+    return {
+      content: `Сравнение ${profession1} и ${profession2}. Обе профессии интересны по-своему!`,
+      comparison: {},
+    };
+  }
+}
+
+// Показать влияние профессии
+async function showProfessionImpact(profession: string): Promise<{ content: string; impact: any }> {
+  const ai = getAIClient();
+  
+  const prompt = `Ты AI-ассистент для карьерного консультирования. Опиши влияние и ценность профессии "${profession}".
+
+Покажи:
+- Какую конкретную пользу приносит специалист
+- Как его работа влияет на продукт/компанию
+- Реальные примеры влияния (с цифрами если возможно)
+- Почему эта профессия важна
+
+Формат JSON:
+{
+  "content": "Эмоциональное описание влияния (2-3 предложения)",
+  "impact": {
+    "direct": "прямое влияние на продукт",
+    "indirect": "косвенное влияние на компанию",
+    "examples": ["пример 1 с цифрами", "пример 2"],
+    "importance": "почему это важно"
+  }
+}
+
+Пример для Data Scientist:
+"Ты как Data Scientist сокращаешь время аналитики на 40% — это помогает компании экономить 1 млн рублей в год и принимать решения в 3 раза быстрее."`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.0-flash',
+      contents: prompt,
+      config: {
+        temperature: 0.6,
+        responseMimeType: 'application/json',
+      },
+    });
+
+    const result = JSON.parse(response.text || '{}');
+    
+    return {
+      content: result.content || `Профессия ${profession} важна и приносит реальную пользу!`,
+      impact: result.impact || {},
+    };
+  } catch (error: any) {
+    console.error('Show impact error:', error);
+    return {
+      content: `Профессия ${profession} играет важную роль!`,
+      impact: {},
+    };
   }
 }
 
@@ -554,13 +838,31 @@ export async function POST(request: NextRequest) {
     const body: ChatRequest = await request.json();
     const { message, history, persona: currentPersona } = body;
 
+    // Шаг 0: Если это первое сообщение - показываем приветствие с выбором сценария
+    if (history.length === 0) {
+      const greeting = await generateGreeting();
+      const chatResponse: ChatResponse = {
+        message: {
+          type: 'buttons',
+          content: greeting.content,
+          buttons: greeting.buttons,
+          metadata: {
+            isGreeting: true,
+          },
+        },
+        persona: currentPersona || { isUncertain: false },
+        stage: 'initial',
+      };
+      return NextResponse.json(chatResponse);
+    }
+
     // Step 1: Parse intent
     const intent = await parseIntent(message, history);
 
     // Step 2: Detect/update persona
     const persona = await detectPersona(message, history, currentPersona || null);
 
-    // Step 3: Проверяем, отвечает ли пользователь на уточняющий вопрос о профессии
+    // Step 3: Проверяем контекст предыдущего сообщения
     const lastAssistantMessage = history
       .slice()
       .reverse()
@@ -572,8 +874,20 @@ export async function POST(request: NextRequest) {
     // Проверяем, на каком этапе уточняющих вопросов мы находимся
     const clarificationStep = lastAssistantMessage?.metadata?.clarificationStep;
     const professionForClarification = lastAssistantMessage?.metadata?.professionForClarification;
+    
+    // Проверяем игровой день
+    const isInGameDay = lastAssistantMessage?.metadata?.isGameDay === true;
+    const gameDayProfession = lastAssistantMessage?.metadata?.profession;
+    const gameDayStep = lastAssistantMessage?.metadata?.step || 1;
+    const gameDayTime = lastAssistantMessage?.metadata?.time || '09:00';
+    const gameDaySituation = lastAssistantMessage?.metadata?.situation || 'start';
+    const isLastGameDayStep = lastAssistantMessage?.metadata?.isLastStep === true;
+    
+    // Проверяем сценарий "не знаю профессию"
+    const isInUncertainFlow = lastAssistantMessage?.metadata?.uncertainFlow === true;
+    const uncertainFlowStep = lastAssistantMessage?.metadata?.uncertainFlowStep || 0;
 
-    // Step 4: Decide response based on intent
+    // Step 4: Decide response based on intent and context
     let responseMessage: any = {
       type: 'text',
       content: 'Как я могу помочь?',
@@ -581,8 +895,293 @@ export async function POST(request: NextRequest) {
 
     let stage: ChatResponse['stage'] = 'initial';
 
+    // Обработка выбора сценария из приветствия
+    if (lastAssistantMessage?.metadata?.isGreeting === true) {
+      const messageLower = message.toLowerCase();
+      
+      if (messageLower.includes('знаю профессию') || messageLower.includes('🎯')) {
+        // Сценарий 1: Знаю профессию
+        responseMessage = {
+          type: 'text',
+          content: 'Отлично! Напиши название профессии, которая тебя интересует, и я покажу её вайб ✨',
+        };
+        stage = 'initial';
+      } else if (messageLower.includes('помоги') || messageLower.includes('выбрать') || messageLower.includes('🤔')) {
+        // Сценарий 2: Не знаю профессию
+        persona.isUncertain = true;
+        const questions = await generateSoftQuestions(0, history);
+        responseMessage = {
+          type: 'buttons',
+          content: `Окей, давай нащупаем твой вайб 🌿\n\n${questions.content}`,
+          buttons: questions.buttons,
+          metadata: {
+            uncertainFlow: true,
+            uncertainFlowStep: 0,
+          },
+        };
+        stage = 'clarifying';
+      } else if (messageLower.includes('прожить день') || messageLower.includes('🎮')) {
+        // Сценарий 3: Игровой день
+        responseMessage = {
+          type: 'text',
+          content: 'Круто! Напиши название профессии, и ты проживёшь целый рабочий день в этой роли 🎮',
+          metadata: {
+            awaitingGameDayProfession: true,
+          },
+        };
+        stage = 'initial';
+      } else if (messageLower.includes('сравнить') || messageLower.includes('⚖️')) {
+        // Сценарий 4: Сравнить профессии
+        responseMessage = {
+          type: 'text',
+          content: 'Интересно! Напиши две профессии через запятую, и я сравню их для тебя. Например: "Frontend-разработчик, Backend-разработчик"',
+          metadata: {
+            awaitingCompareProfessions: true,
+          },
+        };
+        stage = 'initial';
+      } else {
+        // Если непонятный ответ, повторяем приветствие
+        const greeting = await generateGreeting();
+        responseMessage = {
+          type: 'buttons',
+          content: greeting.content,
+          buttons: greeting.buttons,
+          metadata: {
+            isGreeting: true,
+          },
+        };
+        stage = 'initial';
+      }
+    }
+    // Обработка игрового дня
+    else if (isInGameDay && gameDayProfession) {
+      if (isLastGameDayStep || message.toLowerCase().includes('завершить')) {
+        // Конец игрового дня
+        responseMessage = {
+          type: 'text',
+          content: `🎉 Отличная работа! Ты прожил день как ${gameDayProfession}. Теперь ты лучше понимаешь, каково работать в этой профессии!\n\nХочешь посмотреть полную карточку профессии или выбрать другую?`,
+          buttons: ['Показать карточку', 'Выбрать другую профессию', 'Главное меню'],
+        };
+        stage = 'showing_results';
+      } else {
+        // Продолжаем игровой день
+        const nextStep = await continueGameDay(
+          gameDayProfession,
+          message,
+          gameDayStep,
+          gameDayTime,
+          gameDaySituation
+        );
+        responseMessage = {
+          type: 'buttons',
+          content: nextStep.content,
+          buttons: nextStep.buttons,
+          metadata: nextStep.metadata,
+        };
+        stage = 'clarifying';
+      }
+    }
+    // Ожидаем профессию для игрового дня
+    else if (lastAssistantMessage?.metadata?.awaitingGameDayProfession === true) {
+      const professionName = intent.extractedInfo?.profession || message.trim();
+      const gameDay = await generateGameDay(professionName);
+      responseMessage = {
+        type: 'buttons',
+        content: gameDay.content,
+        buttons: gameDay.buttons,
+        metadata: gameDay.metadata,
+      };
+      stage = 'clarifying';
+    }
+    // Ожидаем профессии для сравнения
+    else if (lastAssistantMessage?.metadata?.awaitingCompareProfessions === true) {
+      const parts = message.split(',').map((s) => s.trim());
+      if (parts.length >= 2) {
+        const comparison = await compareProfessions(parts[0], parts[1]);
+        
+        // Форматируем сравнение для отображения
+        let comparisonText = `${comparison.content}\n\n`;
+        if (comparison.comparison && Object.keys(comparison.comparison).length > 0) {
+          comparisonText += `📊 **${parts[0]}** vs **${parts[1]}**\n\n`;
+          
+          const labels: Record<string, string> = {
+            schedule: '📅 График',
+            stress: '😰 Стресс',
+            skills: '🎯 Навыки',
+            growth: '📈 Карьерный рост',
+            impact: '💡 Влияние',
+            format: '🏢 Формат работы',
+            salary: '💰 Зарплата',
+          };
+          
+          for (const [key, label] of Object.entries(labels)) {
+            if (comparison.comparison[key]) {
+              comparisonText += `${label}:\n`;
+              comparisonText += `• ${parts[0]}: ${comparison.comparison[key].profession1}\n`;
+              comparisonText += `• ${parts[1]}: ${comparison.comparison[key].profession2}\n\n`;
+            }
+          }
+        }
+        
+        responseMessage = {
+          type: 'text',
+          content: comparisonText,
+        };
+        stage = 'showing_results';
+      } else {
+        responseMessage = {
+          type: 'text',
+          content: 'Пожалуйста, укажи две профессии через запятую. Например: "Бариста, Массажист"',
+          metadata: {
+            awaitingCompareProfessions: true,
+          },
+        };
+        stage = 'initial';
+      }
+    }
+    // Сценарий 2: Обработка мягких вопросов для неопределившихся
+    else if (isInUncertainFlow && uncertainFlowStep < 3) {
+      // Сохраняем ответ в персону
+      if (uncertainFlowStep === 0) {
+        persona.interests = persona.interests || [];
+        persona.interests.push(message);
+      } else if (uncertainFlowStep === 1) {
+        persona.workStyle = message;
+      } else if (uncertainFlowStep === 2) {
+        persona.values = message;
+      }
+      
+      const nextStep = uncertainFlowStep + 1;
+      
+      if (nextStep < 3) {
+        // Задаем следующий вопрос
+        const questions = await generateSoftQuestions(nextStep, history);
+        responseMessage = {
+          type: 'buttons',
+          content: questions.content,
+          buttons: questions.buttons,
+          metadata: {
+            uncertainFlow: true,
+            uncertainFlowStep: nextStep,
+          },
+        };
+        stage = 'clarifying';
+      } else {
+        // Все вопросы заданы, подбираем профессии
+        const suggestions = await suggestProfessionsForUncertainUser(persona, history);
+        responseMessage = {
+          type: 'cards',
+          content: `${suggestions.content}\n\nВыбери любую, чтобы узнать больше!`,
+          cards: suggestions.cards,
+        };
+        stage = 'showing_results';
+      }
+    }
+    // Обработка запроса о влиянии профессии
+    else if (intent.intent === 'show_impact') {
+      const professionName = intent.extractedInfo?.profession || 'Frontend разработчик';
+      const impactInfo = await showProfessionImpact(professionName);
+      
+      let impactText = `${impactInfo.content}\n\n`;
+      if (impactInfo.impact && Object.keys(impactInfo.impact).length > 0) {
+        impactText += `💡 **Влияние ${professionName}:**\n\n`;
+        if (impactInfo.impact.direct) {
+          impactText += `🎯 Прямое влияние: ${impactInfo.impact.direct}\n\n`;
+        }
+        if (impactInfo.impact.indirect) {
+          impactText += `🌊 Косвенное влияние: ${impactInfo.impact.indirect}\n\n`;
+        }
+        if (impactInfo.impact.examples && impactInfo.impact.examples.length > 0) {
+          impactText += `📊 Примеры:\n`;
+          impactInfo.impact.examples.forEach((ex: string) => {
+            impactText += `• ${ex}\n`;
+          });
+          impactText += '\n';
+        }
+        if (impactInfo.impact.importance) {
+          impactText += `⭐ Почему это важно: ${impactInfo.impact.importance}`;
+        }
+      }
+      
+      responseMessage = {
+        type: 'text',
+        content: impactText,
+      };
+      stage = 'showing_results';
+    }
+    // Обработка сравнения профессий из intent
+    else if (intent.intent === 'compare_professions') {
+      if (intent.extractedInfo?.professionsToCompare && intent.extractedInfo.professionsToCompare.length >= 2) {
+        const prof1 = intent.extractedInfo.professionsToCompare[0];
+        const prof2 = intent.extractedInfo.professionsToCompare[1];
+        
+        const comparison = await compareProfessions(prof1, prof2);
+        
+        let comparisonText = `${comparison.content}\n\n`;
+        if (comparison.comparison && Object.keys(comparison.comparison).length > 0) {
+          comparisonText += `📊 **${prof1}** vs **${prof2}**\n\n`;
+          
+          const labels: Record<string, string> = {
+            schedule: '📅 График',
+            stress: '😰 Стресс',
+            skills: '🎯 Навыки',
+            growth: '📈 Карьерный рост',
+            impact: '💡 Влияние',
+            format: '🏢 Формат работы',
+            salary: '💰 Зарплата',
+          };
+          
+          for (const [key, label] of Object.entries(labels)) {
+            if (comparison.comparison[key]) {
+              comparisonText += `${label}:\n`;
+              comparisonText += `• ${prof1}: ${comparison.comparison[key].profession1}\n`;
+              comparisonText += `• ${prof2}: ${comparison.comparison[key].profession2}\n\n`;
+            }
+          }
+        }
+        
+        responseMessage = {
+          type: 'text',
+          content: comparisonText,
+        };
+        stage = 'showing_results';
+      } else {
+        responseMessage = {
+          type: 'text',
+          content: 'Скажи, какие две профессии ты хочешь сравнить? Например: "Frontend-разработчик и Backend-разработчик"',
+          metadata: {
+            awaitingCompareProfessions: true,
+          },
+        };
+        stage = 'initial';
+      }
+    }
+    // Обработка запроса игрового дня из intent
+    else if (intent.intent === 'game_day') {
+      const professionName = intent.extractedInfo?.profession;
+      if (professionName) {
+        const gameDay = await generateGameDay(professionName);
+        responseMessage = {
+          type: 'buttons',
+          content: gameDay.content,
+          buttons: gameDay.buttons,
+          metadata: gameDay.metadata,
+        };
+        stage = 'clarifying';
+      } else {
+        responseMessage = {
+          type: 'text',
+          content: 'Круто! Напиши название профессии, и ты проживёшь целый рабочий день в этой роли 🎮',
+          metadata: {
+            awaitingGameDayProfession: true,
+          },
+        };
+        stage = 'initial';
+      }
+    }
     // Обработка уточняющих вопросов (три шага: размер компании, локация, специализация)
-    if (clarificationStep && professionForClarification) {
+    else if (clarificationStep && professionForClarification) {
       // Обновляем персону с ответом пользователя
       if (clarificationStep === 'company_size') {
         persona.companySize = mapCompanySizeAnswer(message);

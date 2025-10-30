@@ -8,6 +8,7 @@ import Link from 'next/link';
 export default function ChatInterface({ onClose }: { onClose?: () => void }) {
   const [inputValue, setInputValue] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const greetingLoadedRef = useRef(false); // Флаг для предотвращения двойной загрузки
   const { 
     messages, 
     isTyping, 
@@ -26,6 +27,51 @@ export default function ChatInterface({ onClose }: { onClose?: () => void }) {
   useEffect(() => {
     scrollToBottom();
   }, [messages, isTyping]);
+
+  // Автоматически загружаем приветствие при первом открытии чата
+  useEffect(() => {
+    if (messages.length === 0 && !isTyping && !greetingLoadedRef.current) {
+      greetingLoadedRef.current = true; // Устанавливаем флаг перед загрузкой
+      loadGreeting();
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const loadGreeting = async () => {
+    setTyping(true);
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: 'start',
+          history: [],
+          persona: null,
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.persona) {
+          setPersona(data.persona);
+        }
+        if (data.stage) {
+          setConversationStage(data.stage);
+        }
+        addMessage({
+          role: 'assistant',
+          type: data.message.type || 'text',
+          content: data.message.content || '',
+          buttons: data.message.buttons,
+          cards: data.message.cards,
+          metadata: data.message.metadata,
+        });
+      }
+    } catch (error) {
+      console.error('Error loading greeting:', error);
+    } finally {
+      setTyping(false);
+    }
+  };
 
   const sendMessage = async (text: string) => {
     if (!text.trim()) return;
@@ -104,6 +150,9 @@ export default function ChatInterface({ onClose }: { onClose?: () => void }) {
 
   const handleNewChat = () => {
     clearChat();
+    greetingLoadedRef.current = false; // Сбрасываем флаг для нового диалога
+    // Загружаем приветствие для нового диалога
+    setTimeout(() => loadGreeting(), 100);
   };
 
   return (
@@ -111,30 +160,6 @@ export default function ChatInterface({ onClose }: { onClose?: () => void }) {
       <ChatHeader onClose={onClose} onReset={handleNewChat} />
 
       <div className="flex-1 overflow-y-auto bg-hh-gray-50 px-4 py-5 sm:px-6">
-        {messages.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-12 text-center">
-            <div className="text-5xl">🤖</div>
-            <h3 className="mt-4 text-lg font-semibold text-text-primary">
-              Привет! Я помогу почувствовать профессию
-            </h3>
-            <p className="mt-2 max-w-sm text-sm text-text-secondary">
-              Напиши, чем хочешь заниматься, или выбери готовую подсказку ниже — я уточню детали и соберу для тебя
-              персональный вайб.
-            </p>
-            <div className="mt-6 flex flex-wrap justify-center gap-2">
-              {['Frontend разработчик', 'Бариста в кофейне', 'DevOps-инженер'].map((preset) => (
-                <button
-                  key={preset}
-                  onClick={() => handleButtonClick(preset)}
-                  className="rounded-full border border-hh-gray-200 bg-white px-4 py-2 text-sm font-medium text-text-primary transition-colors hover:border-hh-red hover:text-hh-red"
-                >
-                  {preset}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
         <div className="space-y-4">
           {messages.map((message) => (
             <MessageBubble key={message.id} message={message} onButtonClick={handleButtonClick} />
@@ -157,7 +182,7 @@ export default function ChatInterface({ onClose }: { onClose?: () => void }) {
         <div ref={messagesEndRef} />
       </div>
 
-      <div className="border-t border-hh-gray-200 bg-white px-4 py-3 safe-area-inset-bottom sm:px-6">
+      <div className="border-t border-hh-gray-200 bg-white px-4 pt-3 pb-5 safe-area-inset-bottom sm:px-6 sm:pb-6">
         <form onSubmit={handleSubmit} className="flex items-end gap-2">
           <input
             type="text"
