@@ -1018,72 +1018,237 @@ ${persona.isUncertain ? `
   }
 }
 
-// Uncertain User Flow: подбор профессий для неопределившихся
+// Получение списка профессий из HH API на основе ключевых слов
+async function fetchProfessionsFromHH(
+  keywords: string[],
+  limit: number = 20
+): Promise<Array<{ name: string; count: number; area?: string }>> {
+  try {
+    // Собираем уникальные профессии из HH API
+    const professionsMap = new Map<string, number>();
+    
+    // Для каждого ключевого слова делаем запрос к HH API
+    for (const keyword of keywords) {
+      try {
+        const response = await fetch(
+          `https://api.hh.ru/vacancies?text=${encodeURIComponent(keyword)}&per_page=100&area=113&order_by=relevance`,
+          { headers: { 'User-Agent': 'HH-Vibe-Career-App/1.0' } }
+        );
+        
+        if (!response.ok) continue;
+        
+        const data = await response.json();
+        
+        // Извлекаем названия профессий из вакансий
+        data.items?.forEach((vacancy: any) => {
+          if (!vacancy.name) return;
+          
+          // Очищаем название от компании и лишних слов
+          let professionName = vacancy.name
+            .replace(/\(.*?\)/g, '') // Убираем скобки
+            .replace(/\s*в\s+компани[юи].*$/i, '') // Убираем "в компании X"
+            .replace(/\s*-\s*удалённо.*$/i, '') // Убираем "- удалённо"
+            .replace(/\s+/g, ' ')
+            .trim();
+          
+          // Берем только первую часть до запятой или слеша
+          professionName = professionName.split(/[,/]/)[0].trim();
+          
+          // Пропускаем слишком длинные или короткие названия
+          if (professionName.length < 3 || professionName.length > 50) return;
+          
+          // Считаем частоту встречаемости
+          const currentCount = professionsMap.get(professionName) || 0;
+          professionsMap.set(professionName, currentCount + 1);
+        });
+      } catch (err) {
+        logger.error('Ошибка запроса к HH API', err, { keyword });
+        continue;
+      }
+    }
+    
+    // Сортируем по частоте и берем топ
+    const sortedProfessions = Array.from(professionsMap.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, limit)
+      .map(([name, count]) => ({ name, count }));
+    
+    logger.info('Получены профессии из HH API', { 
+      count: sortedProfessions.length, 
+      keywords 
+    });
+    
+    return sortedProfessions;
+  } catch (error: any) {
+    logger.error('Ошибка получения профессий из HH API', error);
+    return [];
+  }
+}
+
+// Uncertain User Flow: подбор профессий для неопределившихся (с использованием HH API)
 async function suggestProfessionsForUncertainUser(
   persona: UserPersona,
   history: Message[]
 ): Promise<{ content: string; cards: any[] }> {
-  const professions = getAvailableProfessions();
-  
   const conversationContext = history
     .slice(-10)
     .map((m) => `${m.role}: ${m.content}`)
     .join('\n');
 
-  const prompt = `Ты AI-ассистент для карьерного консультирования. На основе диалога подбери 3-5 наиболее подходящих профессий для пользователя.
+  // Шаг 1: Используем LLM для анализа интересов и генерации ключевых слов для HH
+  const keywordsPrompt = `Ты AI-ассистент для карьерного консультирования. Проанализируй диалог с пользователем и определи, какие профессии могут ему подойти.
 
 Профиль пользователя: ${JSON.stringify(persona)}
 
 История диалога:
 ${conversationContext}
 
-Доступные профессии:
-${professions.map((p, i) => `${i + 1}. ${p.profession} (${p.level})`).join('\n')}
+На основе интересов, навыков и предпочтений пользователя, сгенерируй 5-7 ключевых слов для поиска профессий в базе вакансий (например: "разработка", "дизайн", "продажи", "менеджмент", "аналитика" и т.д.).
 
-Проанализируй интересы, навыки и цели пользователя и выбери наиболее подходящие профессии.
+Ключевые слова должны быть:
+- Конкретными и релевантными интересам пользователя
+- На русском языке
+- Подходящими для поиска вакансий
 
 Ответь ТОЛЬКО в формате JSON:
 {
-  "content": "короткое персональное объяснение почему эти профессии подходят",
-  "professionSlugs": ["slug1", "slug2", "slug3"]
+  "keywords": ["ключевое слово 1", "ключевое слово 2", ...],
+  "reasoning": "короткое объяснение почему выбраны эти направления"
 }`;
 
+  let keywords: string[] = [];
+  let reasoning = '';
+  
   try {
-    const response = await getAIClient().models.generateContent({
+    const keywordsResponse = await getAIClient().models.generateContent({
       model: 'gemini-2.0-flash',
-      contents: prompt,
+      contents: keywordsPrompt,
       config: {
-        temperature: 0.5,
+        temperature: 0.7,
         responseMimeType: 'application/json',
       },
     });
 
-    const result = JSON.parse(response.text || '{}');
-    const selectedProfessions = professions.filter((p) =>
-      result.professionSlugs?.includes(p.slug)
-    );
+    const keywordsResult = JSON.parse(keywordsResponse.text || '{}');
+    keywords = keywordsResult.keywords || [];
+    reasoning = keywordsResult.reasoning || '';
+    
+    logger.info('Сгенерированы ключевые слова для HH', { keywords, reasoning });
+  } catch (error: any) {
+    logger.error('Ошибка генерации ключевых слов', error);
+    // Fallback: используем базовые ключевые слова
+    keywords = ['разработка', 'менеджмент', 'дизайн', 'аналитика'];
+  }
+
+  // Шаг 2: Получаем список профессий из HH API
+  const hhProfessions = await fetchProfessionsFromHH(keywords, 30);
+  
+  // Шаг 3: Также получаем уже существующие профессии для возможности показа готовых карточек
+  const existingProfessions = getAvailableProfessions();
+  
+  // Шаг 4: Используем LLM для выбора наиболее подходящих профессий
+  const selectionPrompt = `Ты AI-ассистент для карьерного консультирования. Из списка профессий выбери 3-5 наиболее подходящих для пользователя.
+
+Профиль пользователя: ${JSON.stringify(persona)}
+
+История диалога:
+${conversationContext}
+
+Доступные профессии из HeadHunter (актуальные вакансии):
+${hhProfessions.map((p, i) => `${i + 1}. ${p.name} (${p.count} вакансий)`).join('\n')}
+
+Существующие готовые карточки профессий:
+${existingProfessions.map((p, i) => `${i + 1}. ${p.profession} (${p.level}) - slug: ${p.slug}`).join('\n')}
+
+ВАЖНО:
+1. Приоритетно выбирай профессии из "Существующих готовых карточек", так как для них уже есть детальная информация
+2. Если в готовых карточках нет подходящих вариантов, выбирай из списка HH
+3. Выбирай профессии, которые реально соответствуют интересам и навыкам пользователя
+4. Учитывай количество вакансий - больше вакансий = больше возможностей
+
+Ответь ТОЛЬКО в формате JSON:
+{
+  "content": "короткое персональное объяснение (2-3 предложения) почему эти профессии подходят",
+  "selectedProfessions": [
+    {
+      "name": "название профессии",
+      "source": "existing" или "hh",
+      "slug": "slug если source=existing, иначе null",
+      "reason": "почему эта профессия подходит (1 предложение)"
+    }
+  ]
+}`;
+
+  try {
+    const selectionResponse = await getAIClient().models.generateContent({
+      model: 'gemini-2.0-flash',
+      contents: selectionPrompt,
+      config: {
+        temperature: 0.6,
+        responseMimeType: 'application/json',
+      },
+    });
+
+    const result = JSON.parse(selectionResponse.text || '{}');
+    const selectedProfessions = result.selectedProfessions || [];
+    
+    // Формируем карточки для ответа
+    const cards: any[] = [];
+    
+    for (const selected of selectedProfessions) {
+      if (selected.source === 'existing' && selected.slug) {
+        // Используем существующую карточку
+        const existing = existingProfessions.find(p => p.slug === selected.slug);
+        if (existing) {
+          cards.push({
+            slug: existing.slug,
+            profession: existing.profession,
+            level: existing.level,
+            company: existing.company,
+            image: existing.image,
+          });
+        }
+      } else if (selected.source === 'hh') {
+        // Для профессий из HH создаем "виртуальную" карточку
+        // которая будет сгенерирована при клике
+        const professionSlug = transliterate(selected.name);
+        cards.push({
+          slug: professionSlug,
+          profession: selected.name,
+          level: 'Middle', // По умолчанию
+          company: 'IT-компания',
+          image: null,
+          isVirtual: true, // Флаг что карточка будет сгенерирована
+        });
+      }
+    }
+    
+    // Ограничиваем до 5 карточек
+    const finalCards = cards.slice(0, 5);
+    
+    logger.info('Подобраны профессии для пользователя', { 
+      count: finalCards.length,
+      existing: finalCards.filter(c => !c.isVirtual).length,
+      virtual: finalCards.filter(c => c.isVirtual).length
+    });
 
     return {
       content: result.content || 'Вот несколько интересных профессий для тебя:',
-      cards: selectedProfessions.map((p) => ({
+      cards: finalCards,
+    };
+  } catch (error: any) {
+    logger.error('Ошибка подбора профессий', error);
+    
+    // Fallback: возвращаем существующие профессии
+    return {
+      content: 'Вот несколько интересных профессий для тебя:',
+      cards: existingProfessions.slice(0, 3).map((p) => ({
         slug: p.slug,
         profession: p.profession,
         level: p.level,
         company: p.company,
         image: p.image,
       })),
-    };
-  } catch (error: any) {
-    console.error('Profession suggestion error:', error);
-    console.error('Profession suggestion error details:', {
-      message: error?.message,
-      code: error?.code,
-      status: error?.status,
-    });
-    // Fallback: return first 3 professions
-    return {
-      content: 'Вот несколько интересных профессий для тебя:',
-      cards: professions.slice(0, 3),
     };
   }
 }
@@ -1220,10 +1385,66 @@ ${professions.map((p, i) => `${i + 1}. "${p.profession}" -> slug: "${p.slug}" ($
         };
       }
       
+      // Если не найдено в существующих профессиях, пробуем найти в HH
+      logger.info('Поиск профессий в HH API', { query });
+      try {
+        const hhProfessions = await fetchProfessionsFromHH([query], 10);
+        
+        if (hhProfessions.length > 0) {
+          // Используем LLM для выбора наиболее релевантной профессии
+          const hhSelectionPrompt = `Из списка профессий выбери 1-3 наиболее точно соответствующих запросу пользователя "${query}".
+
+Доступные профессии из HeadHunter:
+${hhProfessions.map((p, i) => `${i + 1}. ${p.name} (${p.count} вакансий)`).join('\n')}
+
+Выбирай профессии, которые максимально точно соответствуют запросу.
+
+Ответь ТОЛЬКО в формате JSON:
+{
+  "content": "короткое объяснение",
+  "selectedNames": ["название профессии 1", "название профессии 2"]
+}`;
+
+          const hhSelectionResponse = await getAIClient().models.generateContent({
+            model: 'gemini-2.0-flash',
+            contents: hhSelectionPrompt,
+            config: {
+              temperature: 0.3,
+              responseMimeType: 'application/json',
+            },
+          });
+
+          const hhResult = JSON.parse(hhSelectionResponse.text || '{}');
+          const selectedHHProfessions = hhProfessions.filter(p => 
+            hhResult.selectedNames?.includes(p.name)
+          );
+          
+          if (selectedHHProfessions.length > 0) {
+            // Возвращаем виртуальные карточки из HH
+            const hhCards = selectedHHProfessions.map(p => ({
+              slug: transliterate(p.name),
+              profession: p.name,
+              level: 'Middle',
+              company: 'IT-компания',
+              image: null,
+              isVirtual: true,
+              vacanciesCount: p.count,
+            }));
+            
+            return {
+              content: hhResult.content || `Нашел ${hhCards.length} ${hhCards.length === 1 ? 'профессию' : 'профессии'} по запросу "${query}" в базе вакансий:`,
+              cards: hhCards,
+            };
+          }
+        }
+      } catch (error: any) {
+        logger.error('Ошибка поиска в HH API', error, { query });
+      }
+      
       // Если не найдено и запрос похож на название профессии, пытаемся сгенерировать
-      if (queryTrimmed.length > 0 && queryTrimmed.length < 50 && !queryTrimmed.includes(' ')) {
+      if (queryTrimmed.length > 0 && queryTrimmed.length < 50) {
         return {
-          content: `Профессия "${queryTrimmed}" не найдена в базе. Генерирую карточку...`,
+          content: `Ищу информацию о профессии "${queryTrimmed}"...`,
           cards: [],
           shouldGenerate: true,
           professionToGenerate: queryTrimmed,
