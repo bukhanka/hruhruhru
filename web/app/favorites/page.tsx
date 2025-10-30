@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
+import { useAuth } from '@/lib/auth-context';
 
 interface FavoriteProfession {
   slug: string;
@@ -15,14 +16,20 @@ interface FavoriteProfession {
 export default function FavoritesPage() {
   const [favorites, setFavorites] = useState<FavoriteProfession[]>([]);
   const [loading, setLoading] = useState(true);
+  const { user } = useAuth();
+
+  const getStorageKey = () => {
+    return user?.id ? `favoriteProfessions_${user.id}` : 'favoriteProfessions';
+  };
 
   useEffect(() => {
     loadFavorites();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   const loadFavorites = async () => {
     try {
-      const favoriteIds = JSON.parse(localStorage.getItem('favoriteProfessions') || '[]');
+      const favoriteIds = JSON.parse(localStorage.getItem(getStorageKey()) || '[]');
       
       if (favoriteIds.length === 0) {
         setLoading(false);
@@ -44,9 +51,9 @@ export default function FavoritesPage() {
   };
 
   const removeFromFavorites = (slug: string) => {
-    const favoriteIds = JSON.parse(localStorage.getItem('favoriteProfessions') || '[]');
+    const favoriteIds = JSON.parse(localStorage.getItem(getStorageKey()) || '[]');
     const newFavorites = favoriteIds.filter((id: string) => id !== slug);
-    localStorage.setItem('favoriteProfessions', JSON.stringify(newFavorites));
+    localStorage.setItem(getStorageKey(), JSON.stringify(newFavorites));
     setFavorites(favorites.filter((f) => f.slug !== slug));
   };
 

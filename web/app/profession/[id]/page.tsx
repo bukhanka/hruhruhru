@@ -7,6 +7,7 @@ import TimelineAudioPlayer from '@/components/TimelineAudioPlayer';
 import VoiceChat from '@/components/VoiceChat';
 import CareerTreeComponent from '@/components/CareerTree';
 import { CareerTree } from '@/types/profession';
+import { useAuth } from '@/lib/auth-context';
 
 const tabs = [
   { id: 'overview', label: 'Обзор', emoji: '👀' },
@@ -55,6 +56,11 @@ export default function ProfessionPage({ params }: { params: Promise<{ id: strin
   const [isVideoOverlayOpen, setVideoOverlayOpen] = useState(false);
   const [isFavorite, setIsFavorite] = useState(false);
   const [showShareToast, setShowShareToast] = useState(false);
+  const { user } = useAuth();
+
+  const getStorageKey = () => {
+    return user?.id ? `favoriteProfessions_${user.id}` : 'favoriteProfessions';
+  };
 
   useEffect(() => {
     fetch(`/api/profession/${id}`)
@@ -65,14 +71,14 @@ export default function ProfessionPage({ params }: { params: Promise<{ id: strin
         setLoading(false);
         
         // Проверяем, есть ли профессия в избранном
-        const favorites = JSON.parse(localStorage.getItem('favoriteProfessions') || '[]');
+        const favorites = JSON.parse(localStorage.getItem(getStorageKey()) || '[]');
         setIsFavorite(favorites.includes(id));
       })
       .catch((error) => {
         console.error('Error loading profession:', error);
         setLoading(false);
       });
-  }, [id]);
+  }, [id, user?.id]);
 
   useEffect(() => {
     if (isVideoOverlayOpen) {
@@ -120,17 +126,17 @@ export default function ProfessionPage({ params }: { params: Promise<{ id: strin
   };
 
   const toggleFavorite = () => {
-    const favorites = JSON.parse(localStorage.getItem('favoriteProfessions') || '[]');
+    const favorites = JSON.parse(localStorage.getItem(getStorageKey()) || '[]');
     
     if (isFavorite) {
       // Удаляем из избранного
       const newFavorites = favorites.filter((fav: string) => fav !== id);
-      localStorage.setItem('favoriteProfessions', JSON.stringify(newFavorites));
+      localStorage.setItem(getStorageKey(), JSON.stringify(newFavorites));
       setIsFavorite(false);
     } else {
       // Добавляем в избранное
       favorites.push(id);
-      localStorage.setItem('favoriteProfessions', JSON.stringify(favorites));
+      localStorage.setItem(getStorageKey(), JSON.stringify(favorites));
       setIsFavorite(true);
     }
   };

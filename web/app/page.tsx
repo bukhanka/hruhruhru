@@ -4,6 +4,8 @@ import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import ChatInterface from '@/components/ChatInterface';
+import { useAuth } from '@/lib/auth-context';
+import { useRouter } from 'next/navigation';
 
 const quickCategories = [
   { label: 'IT', emoji: '💻', query: 'Frontend-разработчик' },
@@ -24,6 +26,8 @@ export default function Home() {
   const [availableProfessions, setAvailableProfessions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchValue, setSearchValue] = useState('');
+  const { user, logout } = useAuth();
+  const router = useRouter();
 
   useEffect(() => {
     fetch('/api/professions')
@@ -71,12 +75,29 @@ export default function Home() {
             >
               ⭐
             </Link>
-            <button
-              aria-label="Открыть настройки"
-              className="flex h-10 w-10 items-center justify-center rounded-full border border-hh-gray-200 text-xl transition hover:border-hh-red"
-            >
-              ⚙️
-            </button>
+            {user ? (
+              <div className="flex items-center gap-2">
+                <span className="hidden text-sm text-text-secondary sm:block">{user.name}</span>
+                <button
+                  onClick={() => {
+                    logout();
+                    router.push('/');
+                  }}
+                  aria-label="Выйти"
+                  className="flex h-10 w-10 items-center justify-center rounded-full border border-hh-gray-200 text-sm transition hover:border-hh-red hover:text-hh-red"
+                  title="Выйти"
+                >
+                  👤
+                </button>
+              </div>
+            ) : (
+              <Link
+                href="/login"
+                className="flex h-10 items-center gap-2 rounded-full border border-hh-gray-200 px-4 text-sm font-medium text-text-primary transition hover:border-hh-red hover:text-hh-red"
+              >
+                Войти
+              </Link>
+            )}
           </div>
         </div>
       </header>
@@ -281,20 +302,31 @@ export default function Home() {
         <div className="mx-auto flex h-16 max-w-5xl items-center justify-around">
           {bottomNavItems.map((item) => {
             const isActive = item.label === 'Главная';
-            const Component = item.label === 'Избранное' ? Link : 'button';
-            const props = item.label === 'Избранное' ? { href: '/favorites' } : {};
+            const className = `flex h-full flex-1 flex-col items-center justify-center text-xs font-medium transition-colors ${
+              isActive ? 'text-hh-red' : 'text-text-secondary hover:text-hh-red'
+            }`;
+            
+            if (item.label === 'Избранное') {
+              return (
+                <Link
+                  key={item.label}
+                  href="/favorites"
+                  className={className}
+                >
+                  <span className="text-lg">{item.icon}</span>
+                  {item.label}
+                </Link>
+              );
+            }
             
             return (
-              <Component
+              <button
                 key={item.label}
-                {...props}
-                className={`flex h-full flex-1 flex-col items-center justify-center text-xs font-medium transition-colors ${
-                  isActive ? 'text-hh-red' : 'text-text-secondary hover:text-hh-red'
-                }`}
+                className={className}
               >
                 <span className="text-lg">{item.icon}</span>
                 {item.label}
-              </Component>
+              </button>
             );
           })}
         </div>

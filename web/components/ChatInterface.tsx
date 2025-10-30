@@ -2,23 +2,41 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { useChatStore } from '@/lib/chat-store';
+import { useAuth } from '@/lib/auth-context';
 import { Message } from '@/types/chat';
 import Link from 'next/link';
 
 export default function ChatInterface({ onClose }: { onClose?: () => void }) {
   const [inputValue, setInputValue] = useState('');
+  const [isRecording, setIsRecording] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const greetingLoadedRef = useRef(false); // Флаг для предотвращения двойной загрузки
+  const socketRef = useRef<WebSocket | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const processorRef = useRef<ScriptProcessorNode | null>(null);
+  const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const { user } = useAuth();
   const { 
     messages, 
     isTyping, 
     persona,
+    userId,
     addMessage, 
     setTyping, 
     setPersona,
     setConversationStage,
     clearChat,
+    setUserId,
   } = useChatStore();
+
+  // Синхронизируем userId при изменении пользователя
+  useEffect(() => {
+    if (user?.id !== userId) {
+      setUserId(user?.id || null);
+    }
+  }, [user?.id, userId, setUserId]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -30,11 +48,12 @@ export default function ChatInterface({ onClose }: { onClose?: () => void }) {
 
   // Автоматически загружаем приветствие при первом открытии чата
   useEffect(() => {
+    // Загружаем приветствие только если нет сообщений и еще не загружали
     if (messages.length === 0 && !isTyping && !greetingLoadedRef.current) {
-      greetingLoadedRef.current = true; // Устанавливаем флаг перед загрузкой
+      greetingLoadedRef.current = true;
       loadGreeting();
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [messages.length, isTyping]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadGreeting = async () => {
     const startTime = Date.now();
@@ -187,6 +206,166 @@ export default function ChatInterface({ onClose }: { onClose?: () => void }) {
     setTimeout(() => loadGreeting(), 100);
   };
 
+  // Голосовой ввод через Deepgram
+  const startVoiceInput = async () => {
+    try {
+      setIsRecording(true);
+      setIsProcessing(true);
+
+      // Получаем доступ к микрофону
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          sampleRate: 16000,
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true,
+        } 
+      });
+      streamRef.current = stream;
+
+      // Создаем AudioContext для обработки аудио
+      const audioContext = new AudioContext({ sampleRate: 16000 });
+      audioContextRef.current = audioContext;
+      const source = audioContext.createMediaStreamSource(stream);
+      sourceRef.current = source;
+      
+      // Создаем ScriptProcessor для получения аудио данных
+      const processor = audioContext.createScriptProcessor(4096, 1, 1);
+      processorRef.current = processor;
+      
+      // Храним базовый текст (только финальные результаты) и промежуточный текст отдельно
+      // Используем текущее значение inputValue через функцию для получения актуального значения
+      const baseTextRef = { current: '' };
+      const interimTextRef = { current: '' };
+      
+      // Инициализируем базовый текст текущим значением поля ввода
+      setInputValue((currentValue) => {
+        baseTextRef.current = currentValue;
+        return currentValue;
+      });
+
+      // Подключаемся к Deepgram WebSocket API
+      const DEEPGRAM_API_KEY = 'f2dcef06e99429aa5f261f7fc895950ecd691080';
+      const socket = new WebSocket(
+        `wss://api.deepgram.com/v1/listen?model=nova-2&language=ru&punctuate=true&interim_results=true&encoding=linear16&sample_rate=16000`,
+        ['token', DEEPGRAM_API_KEY]
+      );
+      socketRef.current = socket;
+
+      socket.onopen = () => {
+        console.log('[Voice] Deepgram подключен');
+        setIsProcessing(false);
+      };
+
+      socket.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          
+          if (data.channel?.alternatives?.[0]?.transcript) {
+            const newTranscript = data.channel.alternatives[0].transcript.trim();
+            
+            if (!newTranscript) return;
+            
+            if (data.is_final) {
+              // Финальный результат - добавляем к базовому тексту
+              baseTextRef.current += (baseTextRef.current ? ' ' : '') + newTranscript;
+              interimTextRef.current = '';
+              // Обновляем поле ввода: базовый текст + пустой промежуточный
+              setInputValue(baseTextRef.current);
+            } else {
+              // Промежуточный результат - показываем в реальном времени
+              interimTextRef.current = newTranscript;
+              // Обновляем поле ввода: базовый текст + промежуточный
+              setInputValue(baseTextRef.current + (baseTextRef.current ? ' ' : '') + newTranscript);
+            }
+          }
+        } catch (err) {
+          console.error('[Voice] Ошибка парсинга ответа:', err);
+        }
+      };
+
+      socket.onerror = (error) => {
+        console.error('[Voice] Ошибка Deepgram:', error);
+        setIsRecording(false);
+        setIsProcessing(false);
+        stopVoiceInput();
+      };
+
+      socket.onclose = () => {
+        console.log('[Voice] Deepgram отключен');
+        setIsRecording(false);
+        setIsProcessing(false);
+        cleanupAudio();
+      };
+
+      // Обрабатываем аудио данные и отправляем в Deepgram
+      processor.onaudioprocess = (e) => {
+        if (socket.readyState === WebSocket.OPEN) {
+          const inputData = e.inputBuffer.getChannelData(0);
+          
+          // Конвертируем Float32Array в Int16Array (PCM формат)
+          const int16Array = new Int16Array(inputData.length);
+          for (let i = 0; i < inputData.length; i++) {
+            const s = Math.max(-1, Math.min(1, inputData[i]));
+            int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+          }
+          
+          // Отправляем бинарные данные напрямую
+          socket.send(int16Array.buffer);
+        }
+      };
+
+      source.connect(processor);
+      processor.connect(audioContext.destination);
+
+    } catch (error) {
+      console.error('[Voice] Ошибка начала записи:', error);
+      setIsRecording(false);
+      setIsProcessing(false);
+      alert('Не удалось получить доступ к микрофону. Проверьте разрешения.');
+    }
+  };
+
+  const cleanupAudio = () => {
+    if (processorRef.current) {
+      processorRef.current.disconnect();
+      processorRef.current = null;
+    }
+    if (sourceRef.current) {
+      sourceRef.current.disconnect();
+      sourceRef.current = null;
+    }
+    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+      audioContextRef.current.close();
+      audioContextRef.current = null;
+    }
+  };
+
+  const stopVoiceInput = () => {
+    if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+      // Отправляем финальное сообщение для завершения транскрипции
+      socketRef.current.send(JSON.stringify({ type: 'CloseStream' }));
+      socketRef.current.close();
+    }
+    
+    cleanupAudio();
+    
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+
+    setIsRecording(false);
+    setIsProcessing(false);
+  };
+
+  // Очистка при размонтировании
+  useEffect(() => {
+    return () => {
+      stopVoiceInput();
+    };
+  }, []);
+
   return (
     <div className="mx-auto flex h-full w-full max-w-3xl flex-col bg-white">
       <ChatHeader onClose={onClose} onReset={handleNewChat} />
@@ -220,13 +399,51 @@ export default function ChatInterface({ onClose }: { onClose?: () => void }) {
             type="text"
             value={inputValue}
             onChange={(event) => setInputValue(event.target.value)}
-            placeholder="Сообщение..."
-            disabled={isTyping}
+            placeholder={isRecording ? "Говорите..." : "Сообщение..."}
+            disabled={isTyping || isRecording}
             className="flex-1 rounded-full border border-hh-gray-200 bg-hh-gray-50 px-4 py-3 text-base text-text-primary shadow-sm placeholder:text-text-secondary focus:border-hh-blue focus:outline-none focus:ring-2 focus:ring-hh-blue/30 disabled:opacity-50"
           />
           <button
+            type="button"
+            onClick={() => {
+              if (isRecording) {
+                stopVoiceInput();
+              } else {
+                startVoiceInput();
+              }
+            }}
+            disabled={isTyping || isProcessing}
+            className={`flex h-12 w-12 items-center justify-center rounded-full transition ${
+              isRecording 
+                ? 'bg-red-500 text-white animate-pulse' 
+                : 'bg-hh-gray-200 text-text-secondary hover:bg-hh-gray-300'
+            } disabled:opacity-50`}
+            aria-label={isRecording ? "Остановить запись" : "Начать голосовой ввод"}
+          >
+            {isRecording ? (
+              <svg
+                className="h-5 w-5"
+                viewBox="0 0 20 20"
+                fill="currentColor"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <rect x="6" y="6" width="8" height="8" rx="1" />
+              </svg>
+            ) : (
+              <svg
+                className="h-5 w-5"
+                viewBox="0 0 20 20"
+                fill="currentColor"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4z" />
+                <path d="M5.5 9.643a.75.75 0 00-1.5 0A6.75 6.75 0 0010.907 16.25 6.75 6.75 0 0015.25 9.643a.75.75 0 00-1.5 0 5.25 5.25 0 11-10.5 0z" />
+              </svg>
+            )}
+          </button>
+          <button
             type="submit"
-            disabled={isTyping || !inputValue.trim()}
+            disabled={isTyping || !inputValue.trim() || isRecording}
             className="flex h-12 w-12 items-center justify-center rounded-full bg-hh-red text-white transition hover:bg-hh-red-dark disabled:bg-hh-gray-200"
             aria-label="Отправить сообщение"
           >
@@ -240,6 +457,11 @@ export default function ChatInterface({ onClose }: { onClose?: () => void }) {
             </svg>
           </button>
         </form>
+        {isRecording && (
+          <div className="mt-2 text-xs text-text-secondary text-center">
+            🎤 Запись... Говорите на русском языке
+          </div>
+        )}
       </div>
     </div>
   );
