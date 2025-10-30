@@ -1,160 +1,310 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import ChatInterface from '@/components/ChatInterface';
+
+const quickCategories = [
+  { label: 'IT', emoji: '💻', query: 'Frontend-разработчик' },
+  { label: 'Дизайн', emoji: '🎨', query: 'Дизайнер' },
+  { label: 'Аналитика', emoji: '📊', query: 'Продуктовый аналитик' },
+  { label: 'Общение', emoji: '🤝', query: 'Менеджер по работе с клиентами' },
+];
+
+const bottomNavItems = [
+  { label: 'Главная', icon: '🏠' },
+  { label: 'Профессии', icon: '🧭' },
+  { label: 'Избранное', icon: '⭐️' },
+  { label: 'Профиль', icon: '👤' },
+];
 
 export default function Home() {
   const [showChat, setShowChat] = useState(false);
   const [availableProfessions, setAvailableProfessions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchValue, setSearchValue] = useState('');
 
   useEffect(() => {
-    // Загружаем список доступных профессий
     fetch('/api/professions')
-      .then(res => res.json())
-      .then(data => {
+      .then((res) => res.json())
+      .then((data) => {
         setAvailableProfessions(data);
         setLoading(false);
       })
-      .catch(err => {
+      .catch((err) => {
         console.error('Error loading professions:', err);
         setLoading(false);
       });
   }, []);
 
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
-      <div className="container mx-auto px-4 py-16">
-        {/* Header */}
-        <div className="text-center mb-16">
-          <h1 className="text-6xl font-bold text-white mb-4">
-            Генератор <span className="text-purple-400">Вайба</span>
-          </h1>
-          <p className="text-xl text-gray-300 max-w-2xl mx-auto">
-            Почувствуй атмосферу профессии изнутри. Узнай, каково это — работать в той или иной роли
-          </p>
-        </div>
+  const filteredProfessions = useMemo(() => {
+    if (!searchValue.trim()) {
+      return availableProfessions;
+    }
+    const normalized = searchValue.toLowerCase();
+    return availableProfessions.filter((prof) =>
+      [prof.profession, prof.level, prof.company]
+        .filter(Boolean)
+        .some((value) => value.toLowerCase().includes(normalized)),
+    );
+  }, [availableProfessions, searchValue]);
 
-        {/* Chat Interface */}
-        {!showChat ? (
-          <div className="max-w-3xl mx-auto mb-12">
-            <div 
-              onClick={() => setShowChat(true)}
-              className="cursor-pointer p-8 bg-white/10 backdrop-blur-lg rounded-2xl border border-white/20 hover:border-purple-500 transition-all hover:scale-105"
+  return (
+    <div className="relative flex min-h-dvh flex-col bg-hh-gray-50">
+      <header className="sticky top-0 z-40 border-b border-hh-gray-200/80 bg-hh-light/95 backdrop-blur-md safe-area-inset-top">
+        <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-4 sm:h-16 sm:px-6">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-hh-red text-base font-bold text-white">
+              hh
+            </div>
+            <div className="hidden flex-col sm:flex">
+              <span className="text-xs font-medium text-hh-red">Генератор вайба</span>
+              <span className="text-sm text-text-secondary">Почувствуй профессию изнутри</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              aria-label="Открыть избранное"
+              className="flex h-10 w-10 items-center justify-center rounded-full bg-hh-gray-50 text-xl"
             >
-              <div className="text-center">
-                <div className="text-6xl mb-4">💬</div>
-                <h3 className="text-2xl font-bold text-white mb-3">
-                  Начни разговор с AI-ассистентом
-                </h3>
-                <p className="text-gray-300 mb-4">
-                  Расскажи, какую профессию ищешь, или просто напиши "не знаю" — я помогу разобраться
-                </p>
-                <div className="inline-block px-6 py-3 bg-purple-600 text-white rounded-xl font-medium">
-                  Начать чат 🚀
-                </div>
+              ⭐
+            </button>
+            <button
+              aria-label="Открыть настройки"
+              className="flex h-10 w-10 items-center justify-center rounded-full border border-hh-gray-200 text-xl"
+            >
+              ⚙️
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main className="flex-1">
+        <section className="hh-gradient-hero text-white">
+          <div className="mx-auto flex max-w-5xl flex-col gap-6 px-4 pt-7 pb-12 sm:px-6 sm:pt-10">
+            <div className="max-w-xl space-y-3">
+              <p className="text-sm uppercase tracking-wide text-white/80">Вдохновлено HH.ru 2024</p>
+              <h1 className="text-[clamp(1.75rem,5vw,2.75rem)] font-bold leading-tight">
+                Найди профессию, которая передает твой вайб
+              </h1>
+              <p className="text-base text-white/85">
+                Ответь на пару вопросов, включи атмосферу и погрузись в день специалиста: задачи, диалоги, звуки,
+                визуал и карьерный путь.
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              <div className="relative">
+                <input
+                  type="search"
+                  value={searchValue}
+                  onChange={(event) => setSearchValue(event.target.value)}
+                  placeholder="Какая профессия интересна?"
+                  aria-label="Поиск по профессиям"
+                  className="h-12 w-full rounded-xl border border-white/20 bg-white/90 px-4 pr-12 text-base text-text-primary shadow-sm placeholder:text-text-secondary/70 focus:border-hh-blue focus:outline-none focus:ring-2 focus:ring-hh-blue/40"
+                />
+                <svg
+                  aria-hidden="true"
+                  className="absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-text-secondary/60"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <circle cx="11" cy="11" r="8" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                </svg>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                {['Junior', 'Стартап', 'Гибрид', 'Москва'].map((chip) => (
+                  <button
+                    key={chip}
+                    className="rounded-full bg-white/15 px-4 py-2 text-sm font-medium text-white backdrop-blur-md transition active:scale-95"
+                    onClick={() => setSearchValue(chip)}
+                  >
+                    {chip}
+                  </button>
+                ))}
               </div>
             </div>
           </div>
-        ) : (
-          <div className="max-w-5xl mx-auto mb-12 bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 overflow-hidden" style={{ height: '600px' }}>
-            <ChatInterface onClose={() => setShowChat(false)} />
-          </div>
-        )}
+        </section>
 
-        {/* Available Professions */}
-        {availableProfessions.length > 0 && (
-          <div className="max-w-5xl mx-auto mb-12">
-            <h2 className="text-2xl font-bold text-white mb-6 text-center">
-              Доступные профессии:
-            </h2>
-            <div className="grid md:grid-cols-3 gap-6">
-              {availableProfessions.map((prof) => (
+        <section className="relative z-10 -mt-10">
+          <div className="mx-auto max-w-5xl rounded-3xl bg-hh-light px-4 py-6 shadow-[0_20px_40px_rgba(0,0,0,0.08)] sm:px-6">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+              {quickCategories.map((category) => (
+                <button
+                  key={category.label}
+                  onClick={() => setSearchValue(category.query)}
+                  className="flex flex-col items-center rounded-2xl border border-hh-gray-200 bg-hh-light px-3 py-4 text-center transition active:scale-95"
+                >
+                  <span className="mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-hh-red/10 text-2xl">
+                    {category.emoji}
+                  </span>
+                  <span className="text-xs font-medium text-text-primary">{category.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="mx-auto flex max-w-5xl flex-col gap-6 px-4 pb-28 pt-8 sm:px-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-semibold text-text-primary sm:text-2xl">Популярные профессии</h2>
+              <p className="text-sm text-text-secondary">Сформированы на основе запросов пользователей и данных HH.ru</p>
+            </div>
+            <button className="hidden items-center gap-2 rounded-full border border-hh-gray-200 px-4 py-2 text-sm font-medium text-text-secondary transition-colors hover:border-hh-blue hover:text-hh-blue md:flex">
+              Фильтры
+              <span className="text-lg">⚙️</span>
+            </button>
+          </div>
+
+          {loading ? (
+            <div className="space-y-4">
+              {[...Array(3)].map((_, index) => (
+                <div key={index} className="animate-pulse rounded-2xl border border-hh-gray-200 bg-hh-gray-50 p-4">
+                  <div className="aspect-[16/9] rounded-xl bg-hh-gray-200/70" />
+                  <div className="mt-4 space-y-2">
+                    <div className="h-4 w-3/4 rounded-full bg-hh-gray-200" />
+                    <div className="h-3 w-1/2 rounded-full bg-hh-gray-200" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : filteredProfessions.length === 0 ? (
+            <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-hh-gray-200 bg-white px-6 py-16 text-center">
+              <div className="text-5xl mb-4">🔍</div>
+              <h3 className="text-lg font-semibold text-text-primary">
+                Мы не нашли профессию по запросу «{searchValue}»
+              </h3>
+              <p className="mt-2 text-sm text-text-secondary">
+                Попробуй изменить параметры поиска или попроси AI подобрать альтернативу.
+              </p>
+              <button
+                onClick={() => setShowChat(true)}
+                className="mt-6 rounded-xl bg-hh-red px-5 py-3 text-sm font-medium text-white shadow-[0_10px_20px_rgba(255,0,0,0.25)] transition active:scale-95"
+              >
+                Спросить AI
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {filteredProfessions.map((prof) => (
                 <Link
-                  key={prof.slug}
                   href={`/profession/${prof.slug}`}
-                  className="group p-6 bg-white/5 backdrop-blur-lg rounded-xl border border-white/10 hover:border-purple-500/50 transition-all hover:scale-105"
+                  key={prof.slug}
+                  className="group block overflow-hidden rounded-2xl border border-hh-gray-200 bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-[0_20px_40px_rgba(0,0,0,0.08)] active:scale-[0.99]"
                 >
                   {prof.image && (
-                    <div className="aspect-square relative rounded-lg overflow-hidden mb-4 bg-slate-700/50">
+                    <div className="relative aspect-[16/9] bg-hh-gray-100">
                       {prof.image.startsWith('http') ? (
                         <img
                           src={prof.image}
                           alt={prof.profession}
-                          className="w-full h-full object-cover"
+                          className="h-full w-full object-cover"
                         />
                       ) : (
-                        <Image
-                          src={prof.image}
-                          alt={prof.profession}
-                          fill
-                          className="object-cover"
-                        />
+                        <Image src={prof.image} alt={prof.profession} fill sizes="(max-width: 768px) 100vw, 1024px" className="object-cover" priority={false} />
+                      )}
+                      {prof.sector && (
+                        <span className="absolute left-4 top-4 rounded-full bg-white/85 px-3 py-1 text-xs font-medium text-text-primary backdrop-blur-sm">
+                          {prof.sector}
+                        </span>
                       )}
                     </div>
                   )}
-                  <h3 className="text-xl font-bold text-white mb-2 group-hover:text-purple-400 transition-colors">
-                    {prof.profession}
-                  </h3>
-                  <p className="text-gray-400 text-sm mb-3">
-                    {prof.level} • {prof.company}
-                  </p>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-purple-400">
-                      {prof.vacancies ? `${prof.vacancies.toLocaleString()} вакансий` : 'N/A'}
-                    </span>
-                    <span className="text-gray-500">
-                      {prof.competition || 'средняя'} конкуренция
-                    </span>
+                  <div className="p-4 sm:p-5">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <h3 className="text-lg font-semibold text-text-primary group-hover:text-hh-red sm:text-xl">
+                          {prof.profession}
+                        </h3>
+                        <p className="mt-1 text-sm text-text-secondary">
+                          {prof.level} • {prof.company}
+                        </p>
+                      </div>
+                      <span className="rounded-full bg-hh-red/10 px-3 py-1 text-xs font-medium text-hh-red">
+                        {prof.workMode || 'Full time'}
+                      </span>
+                    </div>
+                    <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-text-secondary">
+                      <span className="flex items-center gap-1 font-medium text-[#00a854]">
+                        ✓ {prof.vacancies ? prof.vacancies.toLocaleString('ru-RU') : '—'} вакансий
+                      </span>
+                      <span className="flex items-center gap-1">
+                        🔔 {prof.competition || 'Средняя'} конкуренция
+                      </span>
+                      {prof.location && <span>📍 {prof.location}</span>}
+                    </div>
                   </div>
                 </Link>
               ))}
             </div>
-          </div>
-        )}
+          )}
 
-        {/* No professions generated yet */}
-        {!loading && availableProfessions.length === 0 && (
-          <div className="text-center max-w-2xl mx-auto mb-12 p-8 bg-white/5 backdrop-blur-lg rounded-xl border border-white/10">
-            <div className="text-6xl mb-4">📦</div>
-            <h3 className="text-2xl font-bold text-white mb-3">
-              Профессии ещё не сгенерированы
-            </h3>
-            <p className="text-gray-300 mb-4">
-              Запусти скрипт генерации чтобы создать контент:
-            </p>
-            <code className="block bg-slate-800 px-4 py-3 rounded-lg text-purple-400 font-mono text-sm mb-4">
-              npm run generate
-            </code>
-            <p className="text-gray-400 text-sm">
-              Убедись что добавил GOOGLE_API_KEY в .env.local
-            </p>
-          </div>
-        )}
+          <section className="grid gap-4 rounded-3xl border border-hh-gray-200 bg-white px-4 py-6 sm:grid-cols-3 sm:px-6">
+            {[
+              {
+                icon: '📅',
+                title: 'Типичный день',
+                text: 'Понедельник или пятница — почувствуй ритм жизни профессионала.',
+              },
+              {
+                icon: '🎧',
+                title: 'Атмосфера',
+                text: 'Подкасты из митингов, гул серверной или кофейни — выбирай свой вайб.',
+              },
+              {
+                icon: '💬',
+                title: 'Интерактивный чат',
+                text: 'Ответь на вопросы коллег и получи фидбек, будто ты уже в команде.',
+              },
+            ].map((feature) => (
+              <div key={feature.title} className="rounded-2xl border border-hh-gray-200/70 bg-hh-gray-50 p-5">
+                <div className="text-3xl">{feature.icon}</div>
+                <h3 className="mt-3 text-base font-semibold text-text-primary">{feature.title}</h3>
+                <p className="mt-2 text-sm text-text-secondary">{feature.text}</p>
+              </div>
+            ))}
+          </section>
+        </section>
+      </main>
 
-        {/* Features Preview */}
-        <div className="grid md:grid-cols-3 gap-6 mt-20 max-w-5xl mx-auto">
-          <div className="p-6 bg-white/5 backdrop-blur-lg rounded-xl border border-white/10">
-            <div className="text-4xl mb-3">📅</div>
-            <h3 className="text-xl font-semibold text-white mb-2">Типичный день</h3>
-            <p className="text-gray-400">Узнай, как проходит рабочий день от утра до вечера</p>
-          </div>
-          
-          <div className="p-6 bg-white/5 backdrop-blur-lg rounded-xl border border-white/10">
-            <div className="text-4xl mb-3">🎧</div>
-            <h3 className="text-xl font-semibold text-white mb-2">Атмосфера</h3>
-            <p className="text-gray-400">Слушай звуки рабочего процесса и окружения</p>
-          </div>
-          
-          <div className="p-6 bg-white/5 backdrop-blur-lg rounded-xl border border-white/10">
-            <div className="text-4xl mb-3">💬</div>
-            <h3 className="text-xl font-semibold text-white mb-2">Живое общение</h3>
-            <p className="text-gray-400">Интерактивные диалоги с коллегами из команды</p>
-          </div>
+      <nav className="fixed bottom-0 left-0 right-0 z-40 border-t border-hh-gray-200 bg-white/95 backdrop-blur-lg safe-area-inset-bottom md:hidden">
+        <div className="mx-auto flex h-16 max-w-5xl items-center justify-around">
+          {bottomNavItems.map((item) => (
+            <button
+              key={item.label}
+              className={`flex h-full flex-1 flex-col items-center justify-center text-xs font-medium transition-colors ${
+                item.label === 'Главная' ? 'text-hh-red' : 'text-text-secondary'
+              }`}
+            >
+              <span className="text-lg">{item.icon}</span>
+              {item.label}
+            </button>
+          ))}
         </div>
-      </div>
+      </nav>
+
+      <button
+        onClick={() => setShowChat(true)}
+        aria-label="Открыть чат"
+        className="fixed bottom-24 right-4 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-hh-red text-2xl text-white shadow-[0_20px_35px_rgba(255,0,0,0.35)] transition active:scale-95 sm:bottom-28 sm:right-6"
+      >
+        💬
+      </button>
+
+      {showChat && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-white">
+          <ChatInterface onClose={() => setShowChat(false)} />
+        </div>
+      )}
     </div>
   );
 }
