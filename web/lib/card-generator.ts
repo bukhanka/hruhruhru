@@ -248,7 +248,8 @@ export async function generateProfessionData(
   
   if (onProgress) onProgress('Генерирую текстовый контент...', 10);
 
-  const stackLabel = isIT ? 'стек технологий' : 'рабочие навыки и инструменты';
+  const stackLabel = isIT ? 'стек технологий' : 'рабочие инструменты и навыки';
+  const stackFieldName = isIT ? 'стек' : 'инструменты и навыки';
   const stackDescription = isIT 
     ? '8-10 технологий/инструментов конкретно для этой профессии (например: React.js, TypeScript, Docker и т.д.)'
     : '8-10 рабочих навыков, инструментов и оборудования конкретно для этой профессии (например: профессиональные масла, массажный стол, система онлайн-бронирования и т.д.)';
@@ -256,6 +257,13 @@ export async function generateProfessionData(
   const careerPathDescription = isIT
     ? '4 этапа карьеры с названиями типа "Junior [Профессия]", "Middle [Профессия]", "Senior [Профессия]", "Tech Lead / Architect" или аналогичными IT-названиями'
     : '4 этапа карьеры с реальными названиями должностей для этой профессии (НЕ используй "Junior", "Middle", "Senior" - используй реальные названия должностей, например: "Массажист", "Старший массажист", "Ведущий специалист", "Руководитель отдела" или аналогичные)';
+
+  // Адаптируем описание уровня опыта для не-IT профессий
+  const levelDescription = isIT 
+    ? `уровня ${level}` 
+    : level.toLowerCase().includes('junior') || level.toLowerCase().includes('middle') || level.toLowerCase().includes('senior')
+      ? 'среднего уровня опыта' 
+      : `с опытом работы (${level})`;
 
   const dialogInstructions = isIT
     ? 'dialog: реалистичный диалог с коллегой/клиентом в IT-контексте (может быть про код, деплой, баги, проекты и т.д.)'
@@ -301,13 +309,13 @@ ${specializationContext}
 `;
 
   const prompt = `
-Создай детальную карточку профессии для "${profession}" уровня ${level} в ${company}.
+Создай детальную карточку профессии для "${profession}" ${levelDescription} в ${company}.
 
 ${contextualInstructions}
 
 ВАЖНЫЕ ТРЕБОВАНИЯ:
 - schedule: ровно 6 событий за рабочий день (с 10:00 до 18:00)
-- stack: ${stackDescription}
+- ${stackFieldName}: ${stackDescription}
 - benefits: ровно 4 пункта с конкретными цифрами и метриками
 - careerPath: ${careerPathDescription} с реальными зарплатами в рублях
 - skills: ровно 5 ключевых скиллов с уровнем от 40 до 90
@@ -320,8 +328,9 @@ ${contextualInstructions}
 ${!isIT ? `
 КРИТИЧЕСКИ ВАЖНО для НЕ IT профессии:
 - В careerPath НЕ используй слова "Junior", "Middle", "Senior" - используй реальные названия должностей из данной профессии
-- В stack указывай рабочие навыки, инструменты и оборудование, а не технологические стеки
+- В поле stack указывай рабочие навыки, инструменты и оборудование, а не технологические стеки
 - В dialog НЕ используй IT-контекст, серверы, код, деплой и т.д. - используй реальные рабочие ситуации профессии "${profession}"
+- НЕ используй термины "грейд", "уровень", "джун", "мидл", "синьор" - только реальные должности
 ` : ''}
 `;
 
@@ -855,13 +864,20 @@ export async function generateCareerTree(
   const skillsList = currentSkills.map(s => `${s.name} (${s.level}%)`).join(', ');
   const stackList = stack.join(', ');
   
-  const prompt = `Ты AI-ассистент для карьерного консультирования. Создай ДРЕВОВИДНУЮ карьерную roadmap для профессии "${profession}" уровня ${level}.
+  // Адаптируем описание уровня для карьерного дерева
+  const levelDescription = isIT 
+    ? `уровня ${level}` 
+    : level.toLowerCase().includes('junior') || level.toLowerCase().includes('middle') || level.toLowerCase().includes('senior')
+      ? 'среднего уровня опыта' 
+      : `с опытом работы (${level})`;
+  
+  const prompt = `Ты AI-ассистент для карьерного консультирования. Создай ДРЕВОВИДНУЮ карьерную roadmap для профессии "${profession}" ${levelDescription}.
 
-ВАЖНО: Вместо линейного пути (Junior → Senior) создай структуру, где:
+ВАЖНО: ${isIT ? 'Вместо линейного пути (Junior → Senior)' : 'Вместо простого линейного пути карьеры'} создай структуру, где:
 1. Корень - текущая позиция "${profession}"
 2. Ветви - возможные пути развития на основе РАЗНЫХ навыков
 3. Каждый путь показывает конкретные навыки, которые нужно развить
-4. Покажи связанные профессии и вакансии
+4. Покажи связанные профессии и вакансии${!isIT ? '\n5. Используй ТОЛЬКО реальные названия должностей, НЕ используй Junior/Middle/Senior' : ''}
 
 Текущие навыки специалиста: ${skillsList}
 Текущий стек: ${stackList}${realSkillsList}
@@ -869,9 +885,12 @@ export async function generateCareerTree(
 ВАЖНО: Используй реальные навыки из вакансий hh.ru при создании путей развития. Навыки должны быть актуальными и востребованными на рынке.
 
 Примеры путей развития:
-- Для Frontend Developer: Fullstack (через Node.js), Mobile Developer (через React Native), UI/UX Designer (через дизайн), Tech Lead (через управление)
-- Для DevOps: SRE (через углубление в надежность), Cloud Architect (через AWS/Azure), Security Engineer (через безопасность)
-- Для не IT профессий: переход в смежные специальности через развитие конкретных навыков
+${isIT 
+  ? '- Для Frontend Developer: Fullstack (через Node.js), Mobile Developer (через React Native), UI/UX Designer (через дизайн), Tech Lead (через управление)\n- Для DevOps: SRE (через углубление в надежность), Cloud Architect (через AWS/Azure), Security Engineer (через безопасность)'
+  : `- Для массажиста: Старший массажист (через опыт), Специалист по спортивному массажу (через обучение), Инструктор по массажу (через преподавание), Руководитель салона (через управление)
+- Для крановщика: Старший крановщик (через опыт), Инструктор крановщиков (через обучение), Мастер участка (через управление), Инспектор технической безопасности (через сертификацию)
+- НЕ используй IT-термины типа Junior/Middle/Senior - только реальные должности в профессии "${profession}"`
+}
 
 Формат JSON:
 {
@@ -1235,7 +1254,7 @@ export async function generateCard(
   }
 ) {
   const { 
-    generateAudio = false,
+    generateAudio = true,
     onProgress,
     professionDescription,
     companySize,
