@@ -22,7 +22,7 @@ will then respond to any prompt with JSON-formatted output.
 
     client = genai.Client()
     response = client.models.generate_content(
-        model="gemini-2.5-flash",
+        model="gemini-2.0-flash",
         contents="List a few popular cookie recipes, and include the amounts of ingredients.",
         config={
             "response_mime_type": "application/json",
@@ -45,7 +45,7 @@ will then respond to any prompt with JSON-formatted output.
 
     async function main() {
       const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
+        model: "gemini-2.0-flash",
         contents:
           "List a few popular cookie recipes, and include the amounts of ingredients.",
         config: {
@@ -115,7 +115,7 @@ will then respond to any prompt with JSON-formatted output.
 
         result, err := client.Models.GenerateContent(
             ctx,
-            "gemini-2.5-flash",
+            "gemini-2.0-flash",
             genai.Text("List a few popular cookie recipes, and include the amounts of ingredients."),
             config,
         )
@@ -127,7 +127,7 @@ will then respond to any prompt with JSON-formatted output.
 
 ### REST
 
-    curl "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent" \
+    curl "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent" \
     -H "x-goog-api-key: $GEMINI_API_KEY" \
     -H 'Content-Type: application/json' \
     -d '{
@@ -206,7 +206,7 @@ In the following example, you pass an enum as the
 
     client = genai.Client()
     response = client.models.generate_content(
-        model='gemini-2.5-flash',
+        model='gemini-2.0-flash',
         contents='What type of instrument is an oboe?',
         config={
             'response_mime_type': 'text/x.enum',
@@ -224,7 +224,7 @@ In the following example, you pass an enum as the
     const ai = new GoogleGenAI({});
 
     const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
+        model: "gemini-2.0-flash",
         contents: "What type of instrument is an oboe?",
         config: {
           responseMimeType: "text/x.enum",
@@ -239,7 +239,7 @@ In the following example, you pass an enum as the
 
 ### REST
 
-    curl "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent" \
+    curl "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent" \
     -H "x-goog-api-key: $GEMINI_API_KEY" \
         -H 'Content-Type: application/json' \
         -d '{
@@ -277,7 +277,7 @@ And you can also pass the schema as JSON:
 
     client = genai.Client()
     response = client.models.generate_content(
-        model='gemini-2.5-flash',
+        model='gemini-2.0-flash',
         contents='What type of instrument is an oboe?',
         config={
             'response_mime_type': 'text/x.enum',
@@ -316,7 +316,7 @@ use a `Grade` enum to give each title a popularity grade:
 
     client = genai.Client()
     response = client.models.generate_content(
-        model='gemini-2.5-flash',
+        model='gemini-2.0-flash',
         contents='List 10 home-baked cookie recipes and give them grades based on tastiness.',
         config={
             'response_mime_type': 'application/json',
@@ -498,7 +498,7 @@ Here's an example of generating a JSON Schema with Pydantic and submitting it to
 the model:  
 
     curl "https://generativelanguage.googleapis.com/v1alpha/models/\
-    gemini-2.5-flash:generateContent" \
+    gemini-2.0-flash:generateContent" \
         -H "x-goog-api-key: $GEMINI_API_KEY"\
         -H 'Content-Type: application/json' \
         -d @- <<EOF
