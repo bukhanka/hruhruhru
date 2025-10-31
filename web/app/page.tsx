@@ -173,6 +173,19 @@ export default function Home() {
           </div>
         </section>
 
+        <section className="mx-auto max-w-5xl px-4 pt-6 sm:px-6">
+          <button
+            onClick={() => setShowChat(true)}
+            className="w-full rounded-2xl border-2 border-hh-red bg-gradient-to-r from-hh-red to-hh-red/90 px-6 py-6 text-center text-base font-semibold text-white shadow-[0_10px_25px_rgba(255,0,0,0.25)] transition-all hover:shadow-[0_15px_35px_rgba(255,0,0,0.35)] active:scale-[0.98] sm:py-8 sm:text-lg"
+          >
+            <span className="flex items-center justify-center gap-3">
+              <span className="text-2xl">📄</span>
+              <span>Загрузить резюме и посмотреть вайб своей профессии</span>
+              <span className="text-xl">→</span>
+            </span>
+          </button>
+        </section>
+
         <section className="mx-auto flex max-w-5xl flex-col gap-6 px-4 pb-28 pt-8 sm:px-6">
           <div className="flex items-center justify-between">
             <div>
