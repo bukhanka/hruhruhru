@@ -36,6 +36,7 @@ export interface UserPersona {
   // Параметры для сценария "не знаю профессию"
   workStyle?: string; // Стиль работы (в команде / самостоятельно)
   values?: string; // Ценности (стабильность / драйв / смысл / творчество)
+  motivation?: string; // Мотивация / что важно в работе
 }
 
 export interface ChatState {

@@ -6,6 +6,7 @@ import { useAuth } from '@/lib/auth-context';
 import { Message } from '@/types/chat';
 import Link from 'next/link';
 import Logo from '@/components/Logo';
+import ReactMarkdown from 'react-markdown';
 
 export default function ChatInterface({ onClose }: { onClose?: () => void }) {
   const [inputValue, setInputValue] = useState('');
@@ -505,9 +506,26 @@ function MessageBubble({
       {!isUser && <AssistantAvatar />}
 
       <div className={`max-w-[75%] rounded-2xl px-4 py-3 text-sm ${isUser ? 'rounded-br-sm bg-hh-blue text-white' : 'rounded-bl-sm bg-white text-text-primary shadow'} `}>
-        <p className="whitespace-pre-wrap text-base leading-relaxed">
-          {message.content}
-        </p>
+        <div className={`text-base leading-relaxed markdown-content ${
+          isUser ? 'markdown-content-user' : 'markdown-content-assistant'
+        }`}>
+          <ReactMarkdown
+            components={{
+              h2: ({ children }) => <h2 className="font-semibold text-lg mt-4 mb-2 first:mt-0">{children}</h2>,
+              h3: ({ children }) => <h3 className="font-semibold text-base mt-3 mb-2">{children}</h3>,
+              p: ({ children }) => <p className="my-2">{children}</p>,
+              ul: ({ children }) => <ul className="my-2 ml-4 list-disc">{children}</ul>,
+              ol: ({ children }) => <ol className="my-2 ml-4 list-decimal">{children}</ol>,
+              li: ({ children }) => <li className="my-1">{children}</li>,
+              strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+              em: ({ children }) => <em className="italic">{children}</em>,
+              code: ({ children }) => <code className="bg-hh-gray-100 px-1.5 py-0.5 rounded text-sm font-mono">{children}</code>,
+              a: ({ href, children }) => <a href={href} className="underline hover:no-underline">{children}</a>,
+            }}
+          >
+            {message.content}
+          </ReactMarkdown>
+        </div>
 
         {message.buttons && message.buttons.length > 0 && (
           <div className="mt-3 flex flex-wrap gap-2">

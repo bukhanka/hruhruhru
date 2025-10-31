@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import TimelineAudioPlayer from '@/components/TimelineAudioPlayer';
 import VoiceChat from '@/components/VoiceChat';
 import CareerTreeComponent from '@/components/CareerTree';
+import SongPlayer from '@/components/SongPlayer';
 import { CareerTree } from '@/types/profession';
 import { useAuth } from '@/lib/auth-context';
 
@@ -285,6 +286,7 @@ type ProfessionData = {
   competition?: string;
   topCompanies?: string[];
   videos?: { videoId: string; title: string; thumbnail: string; channelTitle: string }[];
+  song?: { url: string; lyrics: string; title: string };
   generatedAt?: string;
   isIT?: boolean;
 };
@@ -303,6 +305,9 @@ export default function ProfessionPage({ params }: { params: Promise<{ id: strin
   const [isVideoOverlayOpen, setVideoOverlayOpen] = useState(false);
   const [isFavorite, setIsFavorite] = useState(false);
   const [showShareToast, setShowShareToast] = useState(false);
+  const [song, setSong] = useState<{ url: string; lyrics: string; title: string } | null>(null);
+  const [isGeneratingSong, setIsGeneratingSong] = useState(false);
+  const [songError, setSongError] = useState<string | null>(null);
   const { user } = useAuth();
 
   // Проверяем query параметр from=chat
@@ -328,6 +333,41 @@ export default function ProfessionPage({ params }: { params: Promise<{ id: strin
         // Проверяем, есть ли профессия в избранном
         const favorites = JSON.parse(localStorage.getItem(getStorageKey()) || '[]');
         setIsFavorite(favorites.includes(id));
+        
+        // Если песня уже есть в данных, устанавливаем её
+        if (payload.song) {
+          setSong(payload.song);
+        } else {
+          // Проверяем, существует ли файл музыки
+          fetch(`/generated/${id}/music/chorus.mp3`, { method: 'HEAD' })
+            .then((res) => {
+              if (res.ok) {
+                // Если файл существует, загружаем текст припева из кеша
+                fetch(`/generated/${id}/music/lyrics.json`)
+                  .then((lyricsRes) => {
+                    if (lyricsRes.ok) {
+                      return lyricsRes.json();
+                    }
+                    return null;
+                  })
+                  .then((lyricsData) => {
+                    if (lyricsData) {
+                      setSong({
+                        url: `/generated/${id}/music/chorus.mp3`,
+                        lyrics: lyricsData.lyrics || `Профессия ${payload.profession} - это важно!`,
+                        title: lyricsData.title || `Песня про ${payload.profession}`,
+                      });
+                    }
+                  })
+                  .catch(() => {
+                    // Игнорируем ошибки
+                  });
+              }
+            })
+            .catch(() => {
+              // Игнорируем ошибки проверки файла
+            });
+        }
       })
       .catch((error) => {
         console.error('Error loading profession:', error);
@@ -446,6 +486,70 @@ export default function ProfessionPage({ params }: { params: Promise<{ id: strin
       console.error('PDF download error:', error);
       // Fallback: открываем диалог печати браузера
       window.print();
+    }
+  };
+
+  const handleGenerateSong = async () => {
+    if (!data || isGeneratingSong) return;
+    
+    setIsGeneratingSong(true);
+    setSongError(null);
+
+    try {
+      const response = await fetch('/api/generate-music', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          slug: id,
+          profession: data.profession,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Не удалось сгенерировать музыку');
+      }
+
+      // Обрабатываем SSE поток
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+
+      if (!reader) {
+        throw new Error('Не удалось получить поток данных');
+      }
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = JSON.parse(line.slice(6));
+            
+            if (data.error) {
+              throw new Error(data.error);
+            }
+            
+            if (data.url && data.lyrics && data.title) {
+              setSong({
+                url: data.url,
+                lyrics: data.lyrics,
+                title: data.title,
+              });
+              setIsGeneratingSong(false);
+              return;
+            }
+          }
+        }
+      }
+    } catch (error: any) {
+      console.error('Error generating song:', error);
+      setSongError(error.message || 'Не удалось сгенерировать песню');
+      setIsGeneratingSong(false);
     }
   };
 
@@ -754,6 +858,47 @@ export default function ProfessionPage({ params }: { params: Promise<{ id: strin
                 )}
               </ContentCard>
             )}
+          </section>
+
+          {/* Блок с песней - предпоследний перед видео */}
+          <section className="scroll-mt-28 space-y-4">
+            <ContentCard title="Песня про профессию" subtitle="Вдохновляющий припев" padding="p-4 sm:p-6">
+              {song ? (
+                <SongPlayer songUrl={song.url} lyrics={song.lyrics} title={song.title} />
+              ) : (
+                <div className="flex flex-col items-center justify-center gap-4 py-8 text-center">
+                  <div className="text-5xl">🎵</div>
+                  <div>
+                    <h3 className="text-lg font-semibold text-text-primary">Песня про {data.profession}</h3>
+                    <p className="mt-2 text-sm text-text-secondary">
+                      Сгенерируй вдохновляющий припев про эту профессию с помощью AI
+                    </p>
+                  </div>
+                  {songError && (
+                    <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+                      {songError}
+                    </div>
+                  )}
+                  <button
+                    onClick={handleGenerateSong}
+                    disabled={isGeneratingSong}
+                    className="rounded-xl bg-hh-red px-6 py-3 text-sm font-medium text-white shadow-[0_15px_30px_rgba(255,0,0,0.25)] transition hover:bg-hh-red-dark disabled:opacity-50"
+                  >
+                    {isGeneratingSong ? (
+                      <span className="flex items-center gap-2">
+                        <svg className="h-5 w-5 animate-spin" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                        </svg>
+                        Генерирую песню...
+                      </span>
+                    ) : (
+                      '🎵 Сгенерировать песню'
+                    )}
+                  </button>
+                </div>
+              )}
+            </ContentCard>
           </section>
 
           {currentVideo && data.videos && data.videos.length > 0 && (

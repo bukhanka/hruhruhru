@@ -75,6 +75,12 @@ export interface Video {
   channelTitle: string;
 }
 
+export interface Song {
+  url: string;
+  lyrics: string;
+  title: string;
+}
+
 export interface ProfessionData {
   profession: string;
   level: string;
@@ -91,6 +97,7 @@ export interface ProfessionData {
   skills: Skill[];
   dialog: Dialog;
   videos?: Video[];
+  song?: Song; // Песня про профессию (припев)
   slug: string;
   images: string[];
   comicStrip?: string[]; // Панели комикса "Живой День в Комиксе" (16:9 формат)
@@ -100,5 +107,13 @@ export interface ProfessionData {
   companySize?: 'startup' | 'medium' | 'large' | 'any';
   location?: 'moscow' | 'spb' | 'other' | 'remote';
   specialization?: string;
+  // Предпочтения пользователя для персонализации
+  userPreferences?: {
+    location?: 'moscow' | 'spb' | 'other' | 'remote';
+    companySize?: 'startup' | 'medium' | 'large' | 'any';
+    specialization?: string;
+    motivation?: string;
+    workStyle?: string;
+  };
 }
 

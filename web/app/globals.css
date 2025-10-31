@@ -96,3 +96,28 @@ select:focus-visible {
 .hh-gradient-overlay {
   background: linear-gradient(180deg, rgba(0, 0, 0, 0.65) 0%, rgba(0, 0, 0, 0.05) 100%);
 }
+
+/* Markdown styles for chat */
+.markdown-content h2:first-child,
+.markdown-content h3:first-child {
+  margin-top: 0;
+}
+
+.markdown-content-user h2,
+.markdown-content-user h3,
+.markdown-content-user p,
+.markdown-content-user li,
+.markdown-content-user strong,
+.markdown-content-user em,
+.markdown-content-user a {
+  color: white;
+}
+
+.markdown-content-assistant h2,
+.markdown-content-assistant h3,
+.markdown-content-assistant p,
+.markdown-content-assistant li,
+.markdown-content-assistant strong,
+.markdown-content-assistant em {
+  color: var(--color-text-primary);
+}

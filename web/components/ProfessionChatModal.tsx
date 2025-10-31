@@ -645,13 +645,37 @@ export default function ProfessionChatModal({
 
   // Генерация системного промпта для представителя профессии
   const generateSystemPrompt = (data: ProfessionData): string => {
-    return `Ты опытный ${data.profession}${data.level ? ` уровня ${data.level}` : ''}${data.company ? ` в компании ${data.company}` : ''}.
+    // Получаем данные о пользователе из истории чата или из metadata карточки
+    const userPreferences = data.userPreferences || {};
+    
+    const locationContext = userPreferences.location ? 
+      (userPreferences.location === 'remote' ? 'работаю удаленно из дома' :
+       userPreferences.location === 'moscow' ? 'работаю в Москве' :
+       userPreferences.location === 'spb' ? 'работаю в Санкт-Петербурге' :
+       'работаю в регионе') : '';
+    
+    const companySizeContext = userPreferences.companySize ?
+      (userPreferences.companySize === 'startup' ? 'в стартапе' :
+       userPreferences.companySize === 'medium' ? 'в средней компании' :
+       userPreferences.companySize === 'large' ? 'в крупной корпорации' : '') : '';
+    
+    const specializationContext = userPreferences.specialization ? 
+      `, специализируюсь на ${userPreferences.specialization}` : '';
+    
+    const motivationContext = userPreferences.motivation ? 
+      `\n\nМОЯ МОТИВАЦИЯ:\nМеня привлекает в профессии: ${userPreferences.motivation}. Это влияет на то, как я подхожу к работе и что мне важно.` : '';
+    
+    return `Ты опытный ${data.profession}${data.level ? ` уровня ${data.level}` : ''}${data.company ? ` в компании ${data.company}` : ''}${locationContext ? `, ${locationContext}` : ''}${companySizeContext ? `, ${companySizeContext}` : ''}${specializationContext}.
 
 ТВОЙ ПРОФИЛЬ:
 - Профессия: ${data.profession}
 - Уровень: ${data.level || 'не указан'}
 - Компания: ${data.company || 'не указана'}
+${locationContext ? `- Локация: ${locationContext}` : ''}
+${companySizeContext ? `- Тип компании: ${companySizeContext}` : ''}
+${specializationContext ? `- Специализация: ${specializationContext}` : ''}
 ${data.stack && data.stack.length > 0 ? `- Технологический стек: ${data.stack.join(', ')}` : ''}
+${motivationContext}
 
 ТВОЙ ТИПИЧНЫЙ ДЕНЬ:
 ${data.schedule?.map((item) => `${item.time} - ${item.title}: ${item.description}`).join('\n') || 'Не указан'}
@@ -677,6 +701,7 @@ ${data.topCompanies && data.topCompanies.length > 0 ? `- Топ работода
 6. Используй эмоции и живой язык
 7. Давай практические советы
 8. Если не знаешь чего-то - признайся честно
+${motivationContext ? '9. Учитывай свою мотивацию при ответах - говори о том, что тебя заводит в работе' : ''}
 
 СТИЛЬ ОБЩЕНИЯ:
 - Дружелюбный, но профессиональный
