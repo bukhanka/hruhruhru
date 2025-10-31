@@ -1544,9 +1544,9 @@ export async function generateCard(
   
   if (onProgress) onProgress('Запускаю параллельную генерацию контента...', 30);
   
-  // 2-5. Параллельная генерация всего остального одновременно
-  // Изображения, статистика, видео и карьерное дерево генерируются параллельно
-  const [images, vacanciesStats, videos, careerTreeResult] = await Promise.allSettled([
+  // 2-6. Параллельная генерация всего остального одновременно
+  // Изображения, статистика, видео, карьерное дерево и аудио генерируются параллельно
+  const [images, vacanciesStats, videos, careerTreeResult, audioResult] = await Promise.allSettled([
     generateImages(profession, slug, (msg, prog) => {
       if (onProgress) {
         // Прогресс: 30% (текст) + до 40% (изображения) = 30-70%
@@ -1587,6 +1587,31 @@ export async function generateCard(
       console.error('Error generating career tree:', error.message);
       return null;
     }),
+    // Генерируем аудио параллельно с остальным (если включено)
+    generateAudio ? (async () => {
+      try {
+        const { generateProfessionAudio, checkCachedAudio, loadCachedAudio } = await import('./audio-generator');
+        const hasAudio = await checkCachedAudio(slug);
+        if (!hasAudio) {
+          return await generateProfessionAudio(
+            slug,
+            () => {
+              // Прогресс для аудио не отслеживаем отдельно в параллельном блоке
+            },
+            {
+              profession: profession,
+              schedule: data.schedule || [],
+              isIT: data.isIT || false,
+            }
+          );
+        } else {
+          return await loadCachedAudio(slug, data.schedule || []);
+        }
+      } catch (error: any) {
+        console.error('Error generating audio:', error.message);
+        return null;
+      }
+    })() : Promise.resolve(null),
   ]);
   
   // Обрабатываем результаты
@@ -1594,6 +1619,7 @@ export async function generateCard(
   const finalVacanciesStats = vacanciesStats.status === 'fulfilled' ? vacanciesStats.value : { vacancies: 0, competition: 'неизвестно', avgSalary: null, topCompanies: [] };
   const finalVideos = videos.status === 'fulfilled' ? videos.value : [];
   const finalCareerTree = careerTreeResult.status === 'fulfilled' ? careerTreeResult.value : null;
+  const audioData = audioResult.status === 'fulfilled' ? audioResult.value : null;
   
   // Генерация комикса "Живой День в Комиксе" с Gemini 2.5 Flash Image Generation
   let comicStrip: string[] = [];
@@ -1625,47 +1651,37 @@ export async function generateCard(
   
   if (onProgress) onProgress('Завершаю генерацию...', 80);
   
-  // 6. Генерация звуков (опционально)
-  let audioData = null;
-  if (generateAudio) {
-    try {
-      if (onProgress) onProgress('Генерирую звуковые эффекты...', 85);
-      
-      // Импортируем audio-generator динамически
-      const { generateProfessionAudio, checkCachedAudio } = await import('./audio-generator');
-      
-      const hasAudio = await checkCachedAudio(slug);
-      if (!hasAudio) {
-        audioData = await generateProfessionAudio(
-          slug,
-          (msg, prog) => {
-            if (onProgress) {
-              // Прогресс: 85% + до 10% (звуки) = 85-95%
-              const totalProgress = 85 + (prog / 100) * 10;
-              onProgress(msg, totalProgress);
-            }
-          },
-          {
-            profession: profession,
-            schedule: data.schedule || [],
-            isIT: data.isIT || false,
-          }
-        );
-      } else {
-        if (onProgress) onProgress('Звуки уже сгенерированы ✅', 95);
-      }
-    } catch (error: any) {
-      console.error('Error generating audio:', error.message);
-      // Не прерываем генерацию из-за звуков
-      if (onProgress) onProgress('⚠️ Ошибка генерации звуков, продолжаем...', 95);
-    }
-  }
-  
   if (onProgress) onProgress('Финализирую...', 95);
+  
+  // Обогащаем schedule элементами soundId из аудио данных
+  let enrichedSchedule = data.schedule || [];
+  if (audioData && audioData.timelineSounds && audioData.timelineSounds.length > 0) {
+    enrichedSchedule = enrichedSchedule.map(scheduleItem => {
+      // Ищем соответствующий звук по времени (timeSlot)
+      const matchingSound = audioData.timelineSounds.find(
+        sound => sound.timeSlot === scheduleItem.time
+      );
+      
+      if (matchingSound) {
+        return {
+          ...scheduleItem,
+          soundId: matchingSound.id, // Добавляем soundId для связи с аудио
+        };
+      }
+      
+      return scheduleItem;
+    });
+    
+    logger.debug('Обогащен schedule звуками', { 
+      scheduleItems: enrichedSchedule.length, 
+      soundsMatched: audioData.timelineSounds.length 
+    });
+  }
   
   // 7. Объединяем всё в один объект
   const fullData = {
     ...data,
+    schedule: enrichedSchedule, // Используем обогащенный schedule
     slug,
     images: finalImages,
     ...finalVacanciesStats,

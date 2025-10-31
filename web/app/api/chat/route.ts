@@ -433,7 +433,7 @@ async function findOrGenerateProfession(
   
   try {
     const generatedCard = await generateCard(professionName, 'middle', 'IT-компания', {
-      generateAudio: false,
+      generateAudio: true, // Генерируем аудио параллельно с остальным контентом
     });
     
     return {

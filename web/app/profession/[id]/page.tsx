@@ -308,6 +308,8 @@ export default function ProfessionPage({ params }: { params: Promise<{ id: strin
   const [song, setSong] = useState<{ url: string; lyrics: string; title: string } | null>(null);
   const [isGeneratingSong, setIsGeneratingSong] = useState(false);
   const [songError, setSongError] = useState<string | null>(null);
+  const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
+  const [audioProgress, setAudioProgress] = useState<string>('');
   const { user } = useAuth();
 
   // Проверяем query параметр from=chat
@@ -731,6 +733,112 @@ export default function ProfessionPage({ params }: { params: Promise<{ id: strin
               title={data.displayLabels?.schedule || "График работы"} 
               padding="p-4 sm:p-6"
             >
+              {/* Кнопка генерации аудио */}
+              {data.schedule && data.schedule.length > 0 && (
+                <div className="mb-6 flex items-center justify-between rounded-2xl border border-hh-gray-200 bg-hh-gray-50 p-4">
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-text-primary">
+                      🎧 Звуковые эффекты рабочего дня
+                    </p>
+                    <p className="mt-1 text-xs text-text-secondary">
+                      {data.schedule.some(item => item.soundId) 
+                        ? `${data.schedule.filter(item => item.soundId).length} из ${data.schedule.length} звуков готовы`
+                        : 'Звуки пока не сгенерированы'}
+                    </p>
+                    {audioProgress && (
+                      <p className="mt-1 text-xs text-hh-blue">{audioProgress}</p>
+                    )}
+                  </div>
+                  <button
+                    onClick={async () => {
+                      if (isGeneratingAudio) return;
+                      
+                      setIsGeneratingAudio(true);
+                      setAudioProgress('Подключение к API...');
+                      
+                      try {
+                        const response = await fetch(`/api/profession/${id}/generate-audio`, {
+                          method: 'POST',
+                        });
+                        
+                        if (!response.ok) {
+                          throw new Error('Ошибка запроса');
+                        }
+                        
+                        const reader = response.body?.getReader();
+                        const decoder = new TextDecoder();
+                        
+                        if (!reader) {
+                          throw new Error('Не удалось получить поток данных');
+                        }
+                        
+                        while (true) {
+                          const { done, value } = await reader.read();
+                          if (done) break;
+                          
+                          const chunk = decoder.decode(value);
+                          const lines = chunk.split('\n');
+                          
+                          for (const line of lines) {
+                            if (line.startsWith('data: ')) {
+                              try {
+                                const data = JSON.parse(line.slice(6));
+                                
+                                if (data.type === 'progress') {
+                                  setAudioProgress(data.message || '');
+                                }
+                                
+                                if (data.done) {
+                                  if (data.error) {
+                                    throw new Error(data.error);
+                                  }
+                                  
+                                  // Обновляем данные карточки
+                                  if (data.schedule) {
+                                    setData(prev => prev ? {
+                                      ...prev,
+                                      schedule: data.schedule,
+                                      audio: data.audio,
+                                    } : null);
+                                  }
+                                  
+                                  setAudioProgress('Звуки успешно сгенерированы! ✅');
+                                  setTimeout(() => setAudioProgress(''), 3000);
+                                }
+                              } catch (e) {
+                                // Игнорируем ошибки парсинга
+                              }
+                            }
+                          }
+                        }
+                      } catch (error: any) {
+                        console.error('Ошибка генерации аудио:', error);
+                        setAudioProgress(`Ошибка: ${error.message}`);
+                        setTimeout(() => setAudioProgress(''), 5000);
+                      } finally {
+                        setIsGeneratingAudio(false);
+                      }
+                    }}
+                    disabled={isGeneratingAudio}
+                    className="flex items-center gap-2 rounded-xl bg-hh-red px-4 py-2 text-sm font-medium text-white transition hover:bg-hh-red/90 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isGeneratingAudio ? (
+                      <>
+                        <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                        </svg>
+                        <span>Генерирую...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>🎵</span>
+                        <span>Сгенерировать звуки</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
               <div className="space-y-6">
                 {/* Блок комикса с горизонтальной каруселью */}
                 {data.comicStrip && data.comicStrip.length > 0 && (

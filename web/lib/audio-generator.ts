@@ -537,3 +537,38 @@ export async function checkCachedAudio(slug: string): Promise<boolean> {
   return fs.existsSync(audioDir);
 }
 
+/**
+ * Загрузка существующих звуков из кеша
+ */
+export async function loadCachedAudio(slug: string, schedule: Array<{ time: string; title: string; description: string }>): Promise<{
+  timelineSounds: Array<{ id: string; timeSlot: string; url: string }>;
+}> {
+  const fs = await import('fs');
+  const path = await import('path');
+  
+  const audioDir = path.join(process.cwd(), 'public', 'generated', slug, 'audio');
+  
+  if (!fs.existsSync(audioDir)) {
+    return { timelineSounds: [] };
+  }
+  
+  const timelineSounds: Array<{ id: string; timeSlot: string; url: string }> = [];
+  
+  // Проходим по schedule и проверяем наличие соответствующих файлов
+  for (const scheduleItem of schedule) {
+    const soundId = `timeline-${scheduleItem.time.replace(':', '-')}`;
+    const filename = `${soundId}.mp3`;
+    const filepath = path.join(audioDir, filename);
+    
+    if (fs.existsSync(filepath)) {
+      timelineSounds.push({
+        id: soundId,
+        timeSlot: scheduleItem.time,
+        url: `/generated/${slug}/audio/${filename}`,
+      });
+    }
+  }
+  
+  return { timelineSounds };
+}
+

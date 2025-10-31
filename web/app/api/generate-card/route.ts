@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
       companySize,
       location,
       specialization,
-      generateAudio = false,
+      generateAudio = true, // По умолчанию генерируем аудио параллельно
       fastMode = false // Режим быстрой генерации - только базовая карточка
     } = body;
 
