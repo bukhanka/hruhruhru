@@ -688,15 +688,33 @@ ${baseContext ? `Контекст: ${baseContext}` : ''}
           }
         }
 
+        // Еще один вариант: проверяем наличие функции text() которая может содержать base64
+        if (!imageData && response.text) {
+          const textResponse = response.text();
+          // Проверяем, не является ли текст base64 изображением
+          if (textResponse && textResponse.length > 100 && /^[A-Za-z0-9+/]+=*$/.test(textResponse.trim())) {
+            imageData = textResponse.trim();
+          }
+        }
+
         if (!imageData) {
           // Логируем структуру ответа для отладки
-          logger.debug('Структура ответа API', { 
+          const responseAny = response as any;
+          logger.error('Изображение не найдено в ответе API', {
+            profession,
+            event: event.title,
+            eventNumber,
             responseType: typeof response,
             hasCandidates: !!response.candidates,
+            candidatesLength: candidates.length,
             responseKeys: Object.keys(response),
-            responseText: response.text?.substring(0, 100)
+            responseAnyKeys: responseAny ? Object.keys(responseAny) : [],
+            hasImages: !!responseAny?.images,
+            imagesLength: responseAny?.images?.length || 0,
+            responseText: response.text?.substring(0, 200),
+            fullResponse: JSON.stringify(responseAny).substring(0, 500)
           });
-          throw new Error('Изображение не найдено в ответе API. Проверьте структуру ответа.');
+          throw new Error(`Изображение не найдено в ответе API для панели ${eventNumber}. Проверьте структуру ответа.`);
         }
 
         const imageDir = path.join(process.cwd(), 'public', 'generated', slug, 'comic');
@@ -717,7 +735,7 @@ ${baseContext ? `Контекст: ${baseContext}` : ''}
         logger.debug('Панель комикса сгенерирована', { profession, event: event.title, path: relativePath });
         
         return relativePath;
-      }, 2, 1500);
+      }, 4, 2000); // Увеличиваем количество попыток с 2 до 4 и задержку с 1500 до 2000 мс
       
       comicImages.push(imagePath);
       
@@ -726,12 +744,23 @@ ${baseContext ? `Контекст: ${baseContext}` : ''}
       }
       
       // Небольшая задержка между запросами
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise(resolve => setTimeout(resolve, 1000)); // Увеличиваем задержку до 1 секунды
     } catch (error: any) {
       const errorMessage = extractErrorMessage(error);
-      logger.error('Ошибка генерации панели комикса', error, { profession, event: event.title, errorMessage });
-      // В случае ошибки добавляем плейсхолдер
-      comicImages.push(`https://placehold.co/1024x576/1e293b/9333ea?text=Comic+Panel+${eventNumber}`);
+      logger.error('Ошибка генерации панели комикса после всех попыток', error, { 
+        profession, 
+        event: event.title, 
+        eventNumber,
+        errorMessage,
+        scheduleLength: schedule.length
+      });
+      
+      // Вместо placeholder URL пропускаем панель - лучше показать меньше панелей, чем сломанные изображения
+      // Это предотвратит ошибки 400 при загрузке через Next.js Image
+      logger.warn(`Пропускаем панель ${eventNumber} из-за ошибки генерации`, { profession, event: event.title });
+      
+      // Можно также создать простой SVG placeholder локально, но пока просто пропускаем
+      // comicImages.push(`/generated/${slug}/comic/comic-panel-${eventNumber}.png`); // Не добавляем ничего
     }
   }
   

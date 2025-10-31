@@ -22,6 +22,11 @@ export async function GET(
       data.isIT = await determineProfessionType(data.profession);
     }
     
+    // Фильтруем placeholder URLs из comicStrip, если они есть
+    if (data.comicStrip && Array.isArray(data.comicStrip)) {
+      data.comicStrip = data.comicStrip.filter((url: string) => !url.startsWith('https://placehold.co'));
+    }
+    
     return NextResponse.json(data);
   } catch (error: any) {
     console.error('Error loading profession:', error);

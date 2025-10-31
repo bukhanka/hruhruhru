@@ -25,6 +25,40 @@ function ComicCarousel({
   const [isDragging, setIsDragging] = useState(false);
   const carouselRef = useRef<HTMLDivElement>(null);
 
+  // Фильтруем placeholder URLs и создаем маппинг панелей к элементам расписания
+  const validPanels = useMemo(() => {
+    return comicPanels
+      .map((panelUrl, index) => {
+        // Пропускаем placeholder URLs
+        if (panelUrl.startsWith('https://placehold.co')) {
+          return null;
+        }
+        
+        // Извлекаем номер панели из имени файла (comic-panel-N.png)
+        const match = panelUrl.match(/comic-panel-(\d+)\.png/);
+        const panelNumber = match ? parseInt(match[1], 10) : index + 1;
+        
+        // Находим соответствующий элемент расписания (индексы начинаются с 1)
+        const scheduleIndex = panelNumber - 1;
+        const scheduleItem = schedule[scheduleIndex];
+        
+        return {
+          url: panelUrl,
+          panelNumber,
+          scheduleItem,
+          scheduleIndex
+        };
+      })
+      .filter((panel): panel is NonNullable<typeof panel> => panel !== null);
+  }, [comicPanels, schedule]);
+
+  // Сбрасываем индекс, если текущий выходит за границы
+  useEffect(() => {
+    if (currentIndex >= validPanels.length) {
+      setCurrentIndex(Math.max(0, validPanels.length - 1));
+    }
+  }, [validPanels.length, currentIndex]);
+
   const handleTouchStart = (e: React.TouchEvent) => {
     setStartX(e.touches[0].clientX);
     setIsDragging(true);
@@ -43,7 +77,7 @@ function ComicCarousel({
     const threshold = 50; // Минимальное расстояние для свайпа
 
     if (Math.abs(diff) > threshold) {
-      if (diff > 0 && currentIndex < comicPanels.length - 1) {
+      if (diff > 0 && currentIndex < validPanels.length - 1) {
         // Свайп влево - следующий слайд
         setCurrentIndex(currentIndex + 1);
       } else if (diff < 0 && currentIndex > 0) {
@@ -74,7 +108,7 @@ function ComicCarousel({
     const threshold = 50;
 
     if (Math.abs(diff) > threshold) {
-      if (diff > 0 && currentIndex < comicPanels.length - 1) {
+      if (diff > 0 && currentIndex < validPanels.length - 1) {
         setCurrentIndex(currentIndex + 1);
       } else if (diff < 0 && currentIndex > 0) {
         setCurrentIndex(currentIndex - 1);
@@ -89,28 +123,33 @@ function ComicCarousel({
     setCurrentIndex(index);
   };
 
+  // Если нет валидных панелей, не показываем компонент
+  if (validPanels.length === 0) {
+    return null;
+  }
+
   return (
     <div className="w-full">
       <div className="mb-4 flex items-center justify-between">
         <div>
           <h3 className="text-base font-semibold text-text-primary">Живой День в Комиксе</h3>
           <p className="mt-1 text-xs text-text-secondary">
-            Панель {currentIndex + 1} из {comicPanels.length}
+            Панель {currentIndex + 1} из {validPanels.length}
           </p>
         </div>
         <div className="flex items-center gap-2">
           {/* Индикаторы */}
           <div className="flex items-center gap-1.5">
-            {comicPanels.map((_, index) => (
+            {validPanels.map((panel, index) => (
               <button
-                key={index}
+                key={panel.panelNumber}
                 onClick={() => goToSlide(index)}
                 className={`h-2 rounded-full transition-all ${
                   index === currentIndex
                     ? 'w-6 bg-hh-red'
                     : 'w-2 bg-hh-gray-300 hover:bg-hh-gray-400'
                 }`}
-                aria-label={`Перейти к панели ${index + 1}`}
+                aria-label={`Перейти к панели ${panel.panelNumber}`}
               />
             ))}
           </div>
@@ -139,11 +178,11 @@ function ComicCarousel({
             transform: `translateX(-${currentIndex * 100}%)`,
           }}
         >
-          {comicPanels.map((panelUrl, index) => {
-            const scheduleItem = schedule[index];
+          {validPanels.map((panel, index) => {
+            const scheduleItem = panel.scheduleItem;
             return (
               <div
-                key={`comic-panel-${index}`}
+                key={`comic-panel-${panel.panelNumber}`}
                 className="min-w-full flex-shrink-0"
               >
                 {/* Заголовок панели */}
@@ -165,8 +204,8 @@ function ComicCarousel({
                 {/* Изображение панели */}
                 <div className="relative aspect-video w-full overflow-hidden bg-hh-gray-50">
                   <Image
-                    src={panelUrl}
-                    alt={scheduleItem ? `Комикс: ${scheduleItem.title}` : `Панель комикса ${index + 1}`}
+                    src={panel.url}
+                    alt={scheduleItem ? `Комикс: ${scheduleItem.title}` : `Панель комикса ${panel.panelNumber}`}
                     fill
                     className="object-cover"
                     sizes="(max-width: 768px) 100vw, (max-width: 1200px) 90vw, 80vw"
@@ -179,7 +218,7 @@ function ComicCarousel({
         </div>
 
         {/* Стрелки навигации */}
-        {comicPanels.length > 1 && (
+        {validPanels.length > 1 && (
           <>
             {currentIndex > 0 && (
               <button
@@ -192,7 +231,7 @@ function ComicCarousel({
                 </svg>
               </button>
             )}
-            {currentIndex < comicPanels.length - 1 && (
+            {currentIndex < validPanels.length - 1 && (
               <button
                 onClick={() => setCurrentIndex(currentIndex + 1)}
                 className="absolute right-4 top-1/2 -translate-y-1/2 rounded-full bg-white/90 p-2 shadow-lg transition hover:bg-white"
@@ -208,7 +247,7 @@ function ComicCarousel({
       </div>
 
       {/* Подсказка для свайпа */}
-      {comicPanels.length > 1 && (
+      {validPanels.length > 1 && (
         <p className="mt-2 text-center text-xs text-text-secondary">
           👆 Проведите пальцем или мышью для навигации
         </p>
