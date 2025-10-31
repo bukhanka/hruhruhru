@@ -5,6 +5,7 @@ import { useChatStore } from '@/lib/chat-store';
 import { useAuth } from '@/lib/auth-context';
 import { Message } from '@/types/chat';
 import Link from 'next/link';
+import Logo from '@/components/Logo';
 
 export default function ChatInterface({ onClose }: { onClose?: () => void }) {
   const [inputValue, setInputValue] = useState('');
@@ -527,7 +528,7 @@ function MessageBubble({
             {message.cards.map((card) => (
               <Link
                 key={card.slug}
-                href={`/profession/${card.slug}`}
+                href={`/profession/${card.slug}?from=chat`}
                 className="flex flex-col gap-3 rounded-2xl border border-hh-gray-200 bg-white p-4 text-left shadow-sm transition hover:-translate-y-1 hover:shadow-md"
               >
                 {card.image && (
@@ -563,7 +564,7 @@ function MessageBubble({
 
 function ChatHeader({ onClose, onReset }: { onClose?: () => void; onReset: () => void }) {
   return (
-    <div className="flex items-center gap-3 border-b border-hh-gray-200 bg-white px-4 py-3 safe-area-inset-top sm:px-6">
+      <div className="flex items-center gap-3 border-b border-hh-gray-200 bg-white px-4 py-3 safe-area-inset-top sm:px-6">
       {onClose && (
         <button
           onClick={onClose}
@@ -574,9 +575,7 @@ function ChatHeader({ onClose, onReset }: { onClose?: () => void; onReset: () =>
         </button>
       )}
       <div className="flex items-center gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-hh-red text-sm font-bold text-white">
-          hh
-        </div>
+        <Logo size={40} />
         <div>
           <div className="text-sm font-semibold text-text-primary">AI ассистент</div>
           <div className="text-xs text-[#00a854]">Онлайн</div>
@@ -596,9 +595,7 @@ function ChatHeader({ onClose, onReset }: { onClose?: () => void; onReset: () =>
 
 function AssistantAvatar() {
   return (
-    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-hh-red text-xs font-semibold text-white">
-      hh
-    </div>
+    <Logo size={32} />
   );
 }
 

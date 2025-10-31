@@ -6,6 +6,7 @@ import Image from 'next/image';
 import ChatInterface from '@/components/ChatInterface';
 import { useAuth } from '@/lib/auth-context';
 import { useRouter } from 'next/navigation';
+import Logo from '@/components/Logo';
 
 const quickCategories = [
   { label: 'IT', emoji: '💻', query: 'Frontend-разработчик' },
@@ -58,15 +59,13 @@ export default function Home() {
     <div className="relative flex min-h-dvh flex-col bg-hh-gray-50">
       <header className="sticky top-0 z-40 border-b border-hh-gray-200/80 bg-hh-light/95 backdrop-blur-md safe-area-inset-top">
         <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-4 sm:h-16 sm:px-6">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-hh-red text-base font-bold text-white">
-              hh
-            </div>
+          <Link href="/" className="flex items-center gap-3">
+            <Logo size={40} />
             <div className="hidden flex-col sm:flex">
               <span className="text-xs font-medium text-hh-red">Генератор вайба</span>
               <span className="text-sm text-text-secondary">Почувствуй профессию изнутри</span>
             </div>
-          </div>
+          </Link>
           <div className="flex items-center gap-2">
             <Link
               href="/favorites"
@@ -106,7 +105,6 @@ export default function Home() {
         <section className="hh-gradient-hero text-white">
           <div className="mx-auto flex max-w-5xl flex-col gap-6 px-4 pt-7 pb-12 sm:px-6 sm:pt-10">
             <div className="max-w-xl space-y-3">
-              <p className="text-sm uppercase tracking-wide text-white/80">Вдохновлено HH.ru 2024</p>
               <h1 className="text-[clamp(1.75rem,5vw,2.75rem)] font-bold leading-tight">
                 Найди профессию, которая передает твой вайб
               </h1>
@@ -162,7 +160,7 @@ export default function Home() {
               {quickCategories.map((category) => (
                 <button
                   key={category.label}
-                  onClick={() => setSearchValue(category.query)}
+                  onClick={() => setSearchValue(category.label)}
                   className="flex flex-col items-center rounded-2xl border border-hh-gray-200 bg-hh-light px-3 py-4 text-center transition active:scale-95"
                 >
                   <span className="mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-hh-red/10 text-2xl">

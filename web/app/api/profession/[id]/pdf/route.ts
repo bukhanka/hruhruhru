@@ -243,7 +243,8 @@ function generatePDFHTML(data: any): string {
 
   ${data.benefits && data.benefits.length > 0 ? `
     <div class="section">
-      <h2>✨ Что тебя ждёт</h2>
+      <h2>✨ Твоя вайбовая миссия</h2>
+      <p style="color: #666; font-size: 14px; margin-bottom: 15px;">Польза обществу</p>
       ${data.benefits.map((benefit: any) => `
         <div style="margin-bottom: 10px;">
           <strong>${benefit.icon}</strong> ${benefit.text}

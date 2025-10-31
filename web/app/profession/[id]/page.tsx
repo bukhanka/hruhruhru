@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, use, useRef, type ReactNode } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
+import { useRouter } from 'next/navigation';
 import TimelineAudioPlayer from '@/components/TimelineAudioPlayer';
 import VoiceChat from '@/components/VoiceChat';
 import CareerTreeComponent from '@/components/CareerTree';
@@ -219,7 +220,6 @@ function ComicCarousel({
 const tabs = [
   { id: 'overview', label: 'Обзор', emoji: '👀' },
   { id: 'schedule', label: 'Расписание', emoji: '📅' },
-  { id: 'skills', label: 'Навыки', emoji: '🎯' },
   { id: 'career', label: 'Карьера', emoji: '📈' },
 ];
 
@@ -229,7 +229,6 @@ type ProfessionData = {
   company?: string;
   displayLabels?: {
     level?: string;
-    stack?: string;
     skills?: string;
     schedule?: string;
     careerPath?: string;
@@ -239,8 +238,6 @@ type ProfessionData = {
   benefits?: { icon: string; text: string }[];
   dialog?: { message: string; options?: string[]; response: string };
   schedule?: { time: string; title: string; description: string; detail?: string; emoji?: string; soundId?: string }[];
-  stack?: string[];
-  skills?: { name: string; level: number }[];
   careerPath?: { level: string; years: string; salary: string }[];
   careerTree?: CareerTree;
   avgSalary?: number;
@@ -254,6 +251,8 @@ type ProfessionData = {
 
 export default function ProfessionPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
+  const router = useRouter();
+  const [fromChat, setFromChat] = useState(false);
   const [data, setData] = useState<ProfessionData | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<string>('overview');
@@ -265,6 +264,14 @@ export default function ProfessionPage({ params }: { params: Promise<{ id: strin
   const [isFavorite, setIsFavorite] = useState(false);
   const [showShareToast, setShowShareToast] = useState(false);
   const { user } = useAuth();
+
+  // Проверяем query параметр from=chat
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      setFromChat(params.get('from') === 'chat');
+    }
+  }, []);
 
   const getStorageKey = () => {
     return user?.id ? `favoriteProfessions_${user.id}` : 'favoriteProfessions';
@@ -524,7 +531,7 @@ export default function ProfessionPage({ params }: { params: Promise<{ id: strin
               </div>
             </ContentCard>
 
-            <ContentCard title="Что тебя ждёт" subtitle="Быстрый обзор" padding="p-4 sm:p-6">
+            <ContentCard title="Твоя вайбовая миссия" subtitle="Польза обществу" padding="p-4 sm:p-6">
               <div className="grid gap-4 sm:grid-cols-3">
                 {data.benefits?.slice(0, 3).map((benefit, index) => (
                   <div key={`${benefit.text}-${index}`} className="rounded-2xl border border-hh-gray-200 bg-hh-gray-50 p-4">
@@ -635,46 +642,6 @@ export default function ProfessionPage({ params }: { params: Promise<{ id: strin
                     );
                   })}
                 </div>
-              </div>
-            </ContentCard>
-          </section>
-
-          <section id="skills" className="scroll-mt-28 space-y-4">
-            <ContentCard title={data.displayLabels?.skills || "Навыки"} subtitle="Что стоит подтянуть" padding="p-4 sm:p-6">
-              <div className="space-y-6">
-                {data.stack && data.stack.length > 0 && (
-                  <div>
-                    <h3 className="text-sm font-semibold uppercase tracking-wide text-text-secondary">
-                      {data.displayLabels?.stack || "Технический стек"}
-                    </h3>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {data.stack.map((tech) => (
-                        <span key={tech} className="inline-flex items-center rounded-full bg-hh-gray-100 px-4 py-1.5 text-xs font-medium text-text-primary">
-                          {tech}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {data.skills && (
-                  <div className="space-y-4">
-                    {data.skills.map((skill) => (
-                      <div key={skill.name}>
-                        <div className="flex items-center justify-between text-sm font-medium text-text-primary">
-                          <span>{skill.name}</span>
-                          <span className="text-hh-red">{skill.level}%</span>
-                        </div>
-                        <div className="mt-2 h-2 rounded-full bg-hh-gray-100">
-                          <div
-                            className="h-full rounded-full bg-hh-red transition-all duration-700"
-                            style={{ width: `${skill.level}%` }}
-                          />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
               </div>
             </ContentCard>
           </section>
@@ -856,13 +823,15 @@ export default function ProfessionPage({ params }: { params: Promise<{ id: strin
             <p className="text-xs uppercase tracking-wide text-text-secondary">Готов попробовать?</p>
             <p className="text-sm font-semibold text-text-primary">Спроси у AI о похожих профессиях</p>
           </div>
-          <Link
-            href="/"
-            className="flex h-12 w-12 items-center justify-center rounded-full bg-hh-red text-lg text-white"
-            aria-label="Назад на главную"
-          >
-            💬
-          </Link>
+          {fromChat && (
+            <button
+              onClick={() => router.back()}
+              className="flex h-12 w-12 items-center justify-center rounded-full bg-hh-red text-lg text-white"
+              aria-label="Вернуться в чат"
+            >
+              💬
+            </button>
+          )}
         </div>
       </div>
       {isVideoOverlayOpen && currentVideo && (
@@ -881,7 +850,6 @@ export default function ProfessionPage({ params }: { params: Promise<{ id: strin
           level: data.level,
           company: data.company,
           schedule: data.schedule,
-          skills: data.skills,
           benefits: data.benefits,
         }}
       />

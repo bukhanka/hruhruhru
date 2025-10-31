@@ -8,7 +8,6 @@ interface VoiceChatProps {
     level?: string;
     company?: string;
     schedule?: Array<{ time: string; title: string; description: string }>;
-    skills?: Array<{ name: string; level: number }>;
     benefits?: Array<{ text: string }>;
   };
 }
@@ -47,7 +46,6 @@ export default function VoiceChat({ professionName, professionData }: VoiceChatP
 ИНФОРМАЦИЯ О ВАКАНСИИ:
 ${professionData?.level ? `Уровень: ${professionData.level}` : ''}
 ${professionData?.benefits?.length ? `\nПреимущества:\n${professionData.benefits.map(b => `- ${b.text}`).join('\n')}` : ''}
-${professionData?.skills?.length ? `\nНужные навыки:\n${professionData.skills.map(s => `- ${s.name}`).join('\n')}` : ''}
 ${professionData?.schedule?.length ? `\nТипичный день:\n${professionData.schedule.slice(0, 3).map(s => `- ${s.time}: ${s.title} - ${s.description}`).join('\n')}` : ''}
 
 ТВОЯ ЗАДАЧА:
