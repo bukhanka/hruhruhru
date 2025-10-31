@@ -44,7 +44,7 @@ export default function ProfessionsPage() {
     const normalized = searchValue.toLowerCase();
     return professions.filter((prof) =>
       [prof.profession, prof.level, prof.company]
-        .filter(Boolean)
+        .filter((value): value is string => Boolean(value))
         .some((value) => value.toLowerCase().includes(normalized)),
     );
   }, [professions, searchValue]);

@@ -271,6 +271,7 @@ type ProfessionData = {
     skills?: string;
     schedule?: string;
     careerPath?: string;
+    stack?: string;
   };
   images?: string[];
   comicStrip?: string[]; // Панели комикса "Живой День в Комиксе"

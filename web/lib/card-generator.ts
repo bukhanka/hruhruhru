@@ -688,9 +688,9 @@ ${baseContext ? `Контекст: ${baseContext}` : ''}
           }
         }
 
-        // Еще один вариант: проверяем наличие функции text() которая может содержать base64
-        if (!imageData && response.text) {
-          const textResponse = response.text();
+        // Еще один вариант: проверяем наличие свойства text которое может содержать base64
+        if (!imageData && response.text && typeof response.text === 'string') {
+          const textResponse = response.text;
           // Проверяем, не является ли текст base64 изображением
           if (textResponse && textResponse.length > 100 && /^[A-Za-z0-9+/]+=*$/.test(textResponse.trim())) {
             imageData = textResponse.trim();
