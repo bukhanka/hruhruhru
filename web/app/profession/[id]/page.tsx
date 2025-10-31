@@ -471,7 +471,7 @@ export default function ProfessionPage({ params }: { params: Promise<{ id: strin
             )}
             <h1 className="text-[clamp(2rem,4vw,3rem)] font-bold leading-tight">{data.profession}</h1>
             <p className="max-w-xl text-sm text-white/80">
-              Представь, что ты уже в команде: мы собрали {data.displayLabels?.schedule?.toLowerCase() || 'расписание дня'}, {data.displayLabels?.skills?.toLowerCase() || 'навыки'}, атмосферу и карьерный рост, основанные на
+              Представь, что ты уже в команде: мы собрали {data.displayLabels?.schedule?.toLowerCase() || 'расписание дня'}, {data.displayLabels?.stack?.toLowerCase() || 'стек'}, атмосферу и карьерный рост, основанные на
               данных hh.ru и опыте специалистов.
             </p>
 
